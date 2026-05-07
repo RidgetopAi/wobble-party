@@ -70,6 +70,8 @@ const cueLabels = [
 ] as const satisfies readonly [CueLabel, string][];
 
 const cueFingerprintStorageKey = 'wobble-party-cue-fingerprints';
+const wobbleWorkshopSettingsStorageKey = 'wobble-party-workshop-settings';
+const wobbleWorkshopPresetsStorageKey = 'wobble-party-workshop-presets';
 const microSeekSeconds = 0.1;
 
 const fixtures = [
@@ -108,6 +110,48 @@ type CueRegion = {
 type FloatingPanelPosition = {
   x: number;
   y: number;
+};
+
+type WaveformViewWindow = {
+  startRatio: number;
+  endRatio: number;
+};
+
+type WobbleWorkshopSettings = {
+  audioInfluence: number;
+  manualEnergy: number;
+  bounceScale: number;
+  bobScale: number;
+  swayScale: number;
+  leanScale: number;
+  jumpScale: number;
+  detailScale: number;
+  glowScale: number;
+};
+
+type WobbleWorkshopPreset = {
+  id: string;
+  name: string;
+  notes?: string;
+  settings: WobbleWorkshopSettings;
+  createdAt: string;
+};
+
+const defaultWobbleWorkshopSettings: WobbleWorkshopSettings = {
+  audioInfluence: 1,
+  manualEnergy: 0,
+  bounceScale: 1,
+  bobScale: 1,
+  swayScale: 1,
+  leanScale: 1,
+  jumpScale: 1,
+  detailScale: 1,
+  glowScale: 1,
+};
+
+const fullWaveformView: WaveformViewWindow = {
+  startRatio: 0,
+  endRatio: 1,
 };
 
 const calibrationFixtures = [
@@ -154,8 +198,16 @@ function App() {
   const [mediaDuration, setMediaDuration] = useState(0);
   const [selectedCueLabel, setSelectedCueLabel] = useState<CueLabel>('kick');
   const [cueNotes, setCueNotes] = useState('');
+  const [isWaveformInspectorOpen, setIsWaveformInspectorOpen] = useState(false);
+  const [waveformView, setWaveformView] = useState<WaveformViewWindow>({
+    startRatio: 0,
+    endRatio: 1,
+  });
   const [isBusProofFloating, setIsBusProofFloating] = useState(false);
   const [busProofPosition, setBusProofPosition] = useState<FloatingPanelPosition>({ x: 28, y: 92 });
+  const [wobbleWorkshopSettings, setWobbleWorkshopSettings] = useState<WobbleWorkshopSettings>(
+    loadStoredWorkshopSettings,
+  );
   const [roughClips, setRoughClips] = useState<RoughCueClipRecord[]>([]);
   const [activeRoughClipId, setActiveRoughClipId] = useState<string | null>(null);
   const [roughClipError, setRoughClipError] = useState<string | null>(null);
@@ -199,8 +251,11 @@ function App() {
 
   const effectiveMediaDuration = mediaDuration || songWaveform?.duration || 0;
   const isSeekableFile = sourceKind === 'file' && effectiveMediaDuration > 0;
+  const isLiveCapture = sourceKind === 'microphone' || sourceKind === 'system';
   const displayedSourceTime =
     sourceKind === 'file' ? currentSourceTime : (latestDescriptor?.sourceTime ?? currentSourceTime);
+  const canEditCueRegion =
+    isSeekableFile || (isLiveCapture && isRunning && displayedSourceTime > 0);
   const cueControlFrame = useMemo(
     () => createCueControlFrame(frame, latestDescriptor),
     [frame, latestDescriptor],
@@ -255,6 +310,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    localStorage.setItem(wobbleWorkshopSettingsStorageKey, JSON.stringify(wobbleWorkshopSettings));
+  }, [wobbleWorkshopSettings]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.repeat || isEditableTarget(event.target)) return;
 
@@ -287,6 +346,7 @@ function App() {
     if (file) {
       void startFile(file);
     }
+    event.target.value = '';
   }
 
   function handleSaveFingerprint() {
@@ -303,6 +363,7 @@ function App() {
       id: crypto.randomUUID(),
       label: selectedCueLabel,
       sourceName: activeInputDevice?.label ?? 'File playback',
+      sourceClipId: activeRoughClipId ?? undefined,
       startTime: cueRegion.startTime,
       endTime,
       descriptorSummary,
@@ -316,6 +377,27 @@ function App() {
       return next;
     });
     setCueNotes('');
+  }
+
+  function handleUpdateFingerprint(
+    id: string,
+    updates: Partial<Pick<CueFingerprint, 'label' | 'notes'>>,
+  ) {
+    setSavedFingerprints((current) => {
+      const next = current.map((fingerprint) =>
+        fingerprint.id === id ? { ...fingerprint, ...updates } : fingerprint,
+      );
+      localStorage.setItem(cueFingerprintStorageKey, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function handleDeleteFingerprint(id: string) {
+    setSavedFingerprints((current) => {
+      const next = current.filter((fingerprint) => fingerprint.id !== id);
+      localStorage.setItem(cueFingerprintStorageKey, JSON.stringify(next));
+      return next;
+    });
   }
 
   async function refreshRoughClips() {
@@ -493,11 +575,33 @@ function App() {
 
       <section className="song-overview-section">
         <Panel title="Song Waveform Overview">
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={!songWaveform}
+              onClick={() => setIsWaveformInspectorOpen(true)}
+            >
+              Pop Out
+            </button>
+          </div>
           <SongOverviewCanvas
             audioRef={audioRef}
             currentTime={displayedSourceTime}
             region={cueRegion}
             waveform={songWaveform}
+            view={fullWaveformView}
+          />
+        </Panel>
+      </section>
+
+      <section className="workshop-section">
+        <Panel title="Wobble Workshop">
+          <WobbleWorkshopPanel
+            controlFrame={cueControlFrame}
+            frame={frame}
+            settings={wobbleWorkshopSettings}
+            setSettings={setWobbleWorkshopSettings}
           />
         </Panel>
       </section>
@@ -514,9 +618,10 @@ function App() {
         <Panel title="Cue Region Loop">
           <CueRegionPanel
             audioRef={audioRef}
+            canEdit={canEditCueRegion}
+            canPlayback={isSeekableFile}
             currentTime={displayedSourceTime}
             duration={effectiveMediaDuration}
-            isEnabled={isSeekableFile}
             region={cueRegion}
             setRegion={setCueRegion}
           />
@@ -537,7 +642,7 @@ function App() {
 
         <Panel title="Cue Fingerprints">
           <CueFingerprintPanel
-            canSave={isSeekableFile && descriptorHistoryCount > 0 && cueRegion.endTime > cueRegion.startTime}
+            canSave={descriptorHistoryCount > 0 && cueRegion.endTime > cueRegion.startTime}
             label={selectedCueLabel}
             notes={cueNotes}
             region={cueRegion}
@@ -545,6 +650,9 @@ function App() {
             setLabel={setSelectedCueLabel}
             setNotes={setCueNotes}
             onSave={handleSaveFingerprint}
+            onDelete={handleDeleteFingerprint}
+            onLoadClip={handleLoadRoughClip}
+            onUpdate={handleUpdateFingerprint}
           />
         </Panel>
 
@@ -618,6 +726,19 @@ function App() {
           position={busProofPosition}
           setPosition={setBusProofPosition}
           onClose={() => setIsBusProofFloating(false)}
+        />
+      ) : null}
+
+      {isWaveformInspectorOpen ? (
+        <WaveformInspector
+          audioRef={audioRef}
+          currentTime={displayedSourceTime}
+          region={cueRegion}
+          setRegion={setCueRegion}
+          setView={setWaveformView}
+          view={waveformView}
+          waveform={songWaveform}
+          onClose={() => setIsWaveformInspectorOpen(false)}
         />
       ) : null}
     </main>
@@ -707,18 +828,154 @@ function FloatingBusProof({
   );
 }
 
-function SongOverviewCanvas({
+function WaveformInspector({
   audioRef,
   currentTime,
+  onClose,
   region,
+  setRegion,
+  setView,
+  view,
   waveform,
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
   currentTime: number;
+  onClose: () => void;
   region: CueRegion;
+  setRegion: Dispatch<SetStateAction<CueRegion>>;
+  setView: Dispatch<SetStateAction<WaveformViewWindow>>;
+  view: WaveformViewWindow;
   waveform: SongWaveformOverview | null;
 }) {
+  const duration = waveform?.duration ?? 0;
+  const viewStartTime = view.startRatio * duration;
+  const viewEndTime = view.endRatio * duration;
+
+  function zoom(multiplier: number) {
+    setView((current) => {
+      const center = (current.startRatio + current.endRatio) / 2;
+      const currentSize = current.endRatio - current.startRatio;
+      const nextSize = clamp(currentSize * multiplier, 0.01, 1);
+      return clampViewWindow(center - nextSize / 2, center + nextSize / 2);
+    });
+  }
+
+  function pan(direction: number) {
+    setView((current) => {
+      const size = current.endRatio - current.startRatio;
+      const delta = size * 0.35 * direction;
+      return clampViewWindow(current.startRatio + delta, current.endRatio + delta);
+    });
+  }
+
+  function zoomToPlayhead() {
+    if (!duration) return;
+    const center = clamp(currentTime / duration, 0, 1);
+    const size = Math.min(0.18, view.endRatio - view.startRatio);
+    setView(clampViewWindow(center - size / 2, center + size / 2));
+  }
+
+  function useVisibleAsRegion() {
+    if (!duration) return;
+    setRegion((current) => ({
+      ...current,
+      startTime: viewStartTime,
+      endTime: viewEndTime,
+      isLooping: false,
+    }));
+  }
+
+  return (
+    <div className="waveform-inspector-backdrop">
+      <section className="waveform-inspector">
+        <div className="waveform-inspector-header">
+          <div>
+            <h2>Song Waveform Inspector</h2>
+            <p>
+              {duration
+                ? `${formatTime(viewStartTime)}-${formatTime(viewEndTime)} visible`
+                : 'Load audio to inspect the waveform'}
+            </p>
+          </div>
+          <button type="button" className="secondary" onClick={onClose}>
+            Dock
+          </button>
+        </div>
+
+        <div className="waveform-inspector-actions">
+          <button type="button" className="secondary" disabled={!waveform} onClick={() => zoom(0.5)}>
+            Zoom In
+          </button>
+          <button type="button" className="secondary" disabled={!waveform} onClick={() => zoom(2)}>
+            Zoom Out
+          </button>
+          <button type="button" className="secondary" disabled={!waveform} onClick={() => pan(-1)}>
+            Pan Left
+          </button>
+          <button type="button" className="secondary" disabled={!waveform} onClick={() => pan(1)}>
+            Pan Right
+          </button>
+          <button type="button" className="secondary" disabled={!waveform} onClick={zoomToPlayhead}>
+            Playhead
+          </button>
+          <button type="button" className="secondary" disabled={!waveform} onClick={() => setView(fullWaveformView)}>
+            Full Song
+          </button>
+          <button type="button" disabled={!waveform} onClick={useVisibleAsRegion}>
+            Use Visible As Region
+          </button>
+        </div>
+
+        <SongOverviewCanvas
+          audioRef={audioRef}
+          currentTime={currentTime}
+          height={440}
+          region={region}
+          view={view}
+          waveform={waveform}
+          width={1800}
+          onSelectRegion={(startTime, endTime) =>
+            setRegion((current) => ({
+              ...current,
+              startTime,
+              endTime,
+              isLooping: false,
+            }))
+          }
+        />
+
+        <dl className="metric-grid waveform-inspector-readout">
+          <Metric label="Playhead" value={formatTime(currentTime)} />
+          <Metric label="Region Start" value={formatTime(region.startTime)} />
+          <Metric label="Region End" value={formatTime(region.endTime)} />
+          <Metric label="Region Length" value={formatTime(Math.max(0, region.endTime - region.startTime))} />
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+function SongOverviewCanvas({
+  audioRef,
+  currentTime,
+  height = 260,
+  onSelectRegion,
+  region,
+  view,
+  waveform,
+  width = 1400,
+}: {
+  audioRef: RefObject<HTMLAudioElement | null>;
+  currentTime: number;
+  height?: number;
+  onSelectRegion?: (startTime: number, endTime: number) => void;
+  region: CueRegion;
+  view: WaveformViewWindow;
+  waveform: SongWaveformOverview | null;
+  width?: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const selectionStartRef = useRef<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -743,12 +1000,20 @@ function SongOverviewCanvas({
 
     const centerY = height * 0.5;
     const amplitudeHeight = height * 0.42;
-    const bucketWidth = width / waveform.buckets.length;
+    const viewStart = clamp(view.startRatio, 0, 1);
+    const viewEnd = clamp(view.endRatio, viewStart + 0.001, 1);
+    const viewDuration = Math.max(0.001, viewEnd - viewStart);
+    const startBucket = Math.floor(viewStart * waveform.buckets.length);
+    const endBucket = Math.min(
+      waveform.buckets.length,
+      Math.ceil(viewEnd * waveform.buckets.length),
+    );
+    const bucketWidth = width / Math.max(1, endBucket - startBucket);
     const maxRms = Math.max(0.001, ...waveform.buckets.map((bucket) => bucket.rms));
 
-    for (let index = 0; index < waveform.buckets.length; index += 1) {
+    for (let index = startBucket; index < endBucket; index += 1) {
       const bucket = waveform.buckets[index];
-      const x = index * bucketWidth;
+      const x = (index - startBucket) * bucketWidth;
       const activity = bucket.rms / maxRms;
       const activityHeight = Math.max(1, activity * height);
       const minY = centerY + clamp(bucket.min, -1, 1) * amplitudeHeight;
@@ -761,10 +1026,17 @@ function SongOverviewCanvas({
     }
 
     if (region.endTime > region.startTime) {
-      const startX = (region.startTime / waveform.duration) * width;
-      const endX = (region.endTime / waveform.duration) * width;
+      const startRatio = region.startTime / waveform.duration;
+      const endRatio = region.endTime / waveform.duration;
+      const startX = ((startRatio - viewStart) / viewDuration) * width;
+      const endX = ((endRatio - viewStart) / viewDuration) * width;
       context.fillStyle = 'rgba(250, 204, 21, 0.18)';
-      context.fillRect(startX, 0, Math.max(1, endX - startX), height);
+      context.fillRect(
+        clamp(startX, 0, width),
+        0,
+        Math.max(1, clamp(endX, 0, width) - clamp(startX, 0, width)),
+        height,
+      );
       context.strokeStyle = '#facc15';
       context.lineWidth = 2;
       context.beginPath();
@@ -775,21 +1047,50 @@ function SongOverviewCanvas({
       context.stroke();
     }
 
-    const playheadX = (clamp(currentTime, 0, waveform.duration) / waveform.duration) * width;
+    const playheadRatio = clamp(currentTime, 0, waveform.duration) / waveform.duration;
+    const playheadX = ((playheadRatio - viewStart) / viewDuration) * width;
     context.strokeStyle = '#f8fafc';
     context.lineWidth = 2;
     context.beginPath();
     context.moveTo(playheadX, 0);
     context.lineTo(playheadX, height);
     context.stroke();
-  }, [currentTime, region, waveform]);
+  }, [currentTime, height, region, view, waveform, width]);
+
+  function getTimeFromPointer(event: PointerEvent<HTMLCanvasElement>) {
+    if (!waveform) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewStart = clamp(view.startRatio, 0, 1);
+    const viewEnd = clamp(view.endRatio, viewStart + 0.001, 1);
+    const ratio = viewStart + clamp((event.clientX - rect.left) / rect.width, 0, 1) * (viewEnd - viewStart);
+    return ratio * waveform.duration;
+  }
 
   function handlePointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (!waveform || !audioRef.current) return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-    audioRef.current.currentTime = ratio * waveform.duration;
+    const selectedTime = getTimeFromPointer(event);
+    if (selectedTime === null) return;
+
+    if (event.shiftKey && onSelectRegion) {
+      selectionStartRef.current = selectedTime;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    audioRef.current.currentTime = selectedTime;
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLCanvasElement>) {
+    if (!onSelectRegion || selectionStartRef.current === null) return;
+    const selectedTime = getTimeFromPointer(event);
+    if (selectedTime === null) return;
+    const startTime = Math.min(selectionStartRef.current, selectedTime);
+    const endTime = Math.max(selectionStartRef.current, selectedTime);
+    if (endTime - startTime >= 0.05) {
+      onSelectRegion(startTime, endTime);
+    }
+    selectionStartRef.current = null;
   }
 
   return (
@@ -797,9 +1098,10 @@ function SongOverviewCanvas({
       <canvas
         ref={canvasRef}
         className="song-overview-canvas"
-        height="260"
-        width="1400"
+        height={height}
+        width={width}
         onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
       />
       <div className="chart-readout">
         <span>{waveform ? `${formatTime(waveform.duration)} total` : 'No song loaded'}</span>
@@ -1171,7 +1473,10 @@ function CueFingerprintPanel({
   canSave,
   label,
   notes,
+  onDelete,
+  onLoadClip,
   onSave,
+  onUpdate,
   region,
   savedFingerprints,
   setLabel,
@@ -1180,7 +1485,10 @@ function CueFingerprintPanel({
   canSave: boolean;
   label: CueLabel;
   notes: string;
+  onDelete: (id: string) => void;
+  onLoadClip: (id: string) => Promise<void>;
   onSave: () => void;
+  onUpdate: (id: string, updates: Partial<Pick<CueFingerprint, 'label' | 'notes'>>) => void;
   region: CueRegion;
   savedFingerprints: CueFingerprint[];
   setLabel: Dispatch<SetStateAction<CueLabel>>;
@@ -1225,14 +1533,14 @@ function CueFingerprintPanel({
         {savedFingerprints.length === 0 ? (
           <p>No saved fingerprints yet.</p>
         ) : (
-          savedFingerprints.slice(0, 6).map((fingerprint) => (
-            <div key={fingerprint.id} className="fingerprint-row">
-              <strong>{formatCueLabel(fingerprint.label)}</strong>
-              <span>
-                {formatTime(fingerprint.startTime)}-{formatTime(fingerprint.endTime)}
-              </span>
-              <span>{formatPercent(fingerprint.descriptorSummary.averages.intensity)}</span>
-            </div>
+          savedFingerprints.slice(0, 10).map((fingerprint) => (
+            <FingerprintRow
+              key={fingerprint.id}
+              fingerprint={fingerprint}
+              onDelete={onDelete}
+              onLoadClip={onLoadClip}
+              onUpdate={onUpdate}
+            />
           ))
         )}
       </div>
@@ -1240,18 +1548,74 @@ function CueFingerprintPanel({
   );
 }
 
+function FingerprintRow({
+  fingerprint,
+  onDelete,
+  onLoadClip,
+  onUpdate,
+}: {
+  fingerprint: CueFingerprint;
+  onDelete: (id: string) => void;
+  onLoadClip: (id: string) => Promise<void>;
+  onUpdate: (id: string, updates: Partial<Pick<CueFingerprint, 'label' | 'notes'>>) => void;
+}) {
+  return (
+    <div className="fingerprint-row">
+      <select
+        aria-label="Fingerprint label"
+        value={fingerprint.label}
+        onChange={(event) => onUpdate(fingerprint.id, { label: event.target.value as CueLabel })}
+      >
+        {cueLabels.map(([value, display]) => (
+          <option key={value} value={value}>
+            {display}
+          </option>
+        ))}
+      </select>
+      <input
+        aria-label="Fingerprint notes"
+        defaultValue={fingerprint.notes ?? ''}
+        maxLength={140}
+        placeholder="Notes"
+        onBlur={(event) =>
+          onUpdate(fingerprint.id, { notes: event.target.value.trim() || undefined })
+        }
+      />
+      <span>
+        {formatTime(fingerprint.startTime)}-{formatTime(fingerprint.endTime)}
+      </span>
+      <span>{formatPercent(fingerprint.descriptorSummary.averages.intensity)}</span>
+      <button
+        type="button"
+        className="secondary"
+        disabled={!fingerprint.sourceClipId}
+        onClick={() => {
+          if (fingerprint.sourceClipId) void onLoadClip(fingerprint.sourceClipId);
+        }}
+      >
+        Load Clip
+      </button>
+      <button type="button" className="secondary" onClick={() => onDelete(fingerprint.id)}>
+        Delete
+      </button>
+    </div>
+  );
+}
+
 function CueRegionPanel({
   audioRef,
+  canEdit,
+  canPlayback,
   currentTime,
   duration,
-  isEnabled,
   region,
   setRegion,
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
+  canEdit: boolean;
+  canPlayback: boolean;
   currentTime: number;
   duration: number;
-  isEnabled: boolean;
   region: CueRegion;
   setRegion: Dispatch<SetStateAction<CueRegion>>;
 }) {
@@ -1259,14 +1623,18 @@ function CueRegionPanel({
   const normalizedEnd = region.endTime > region.startTime ? region.endTime : maxTime;
 
   function seekTo(time: number) {
-    if (!isEnabled || !audioRef.current) return;
+    if (!canPlayback || !audioRef.current) return;
     audioRef.current.currentTime = clamp(time, 0, maxTime);
   }
 
   function setStartTime(startTime: number) {
     setRegion((current) => ({
       ...current,
-      startTime: clamp(startTime, 0, Math.max(0, current.endTime - 0.05)),
+      startTime: clamp(
+        startTime,
+        0,
+        current.endTime > current.startTime ? Math.max(0, current.endTime - 0.05) : maxTime,
+      ),
     }));
   }
 
@@ -1286,7 +1654,7 @@ function CueRegionPanel({
   }
 
   function playRegion() {
-    if (!isEnabled || !audioRef.current || normalizedEnd <= region.startTime) return;
+    if (!canPlayback || !audioRef.current || normalizedEnd <= region.startTime) return;
     audioRef.current.currentTime = region.startTime;
     setRegion((current) => ({ ...current, isLooping: true }));
     void audioRef.current.play();
@@ -1310,14 +1678,14 @@ function CueRegionPanel({
         <Metric label="Length" value={formatTime(Math.max(0, normalizedEnd - region.startTime))} />
       </dl>
 
-      <div className="region-slider-stack" aria-disabled={!isEnabled}>
+      <div className="region-slider-stack" aria-disabled={!canEdit}>
         <label className="slider-row">
           <span>
             Region Start
             <strong>{formatTime(region.startTime)}</strong>
           </span>
           <input
-            disabled={!isEnabled}
+            disabled={!canEdit}
             max={maxTime}
             min={0}
             step={0.01}
@@ -1332,7 +1700,7 @@ function CueRegionPanel({
             <strong>{formatTime(normalizedEnd)}</strong>
           </span>
           <input
-            disabled={!isEnabled}
+            disabled={!canEdit}
             max={maxTime}
             min={0}
             step={0.01}
@@ -1344,24 +1712,358 @@ function CueRegionPanel({
       </div>
 
       <div className="region-actions">
-        <button type="button" className="secondary region-secondary" disabled={!isEnabled} onClick={captureStart}>
+        <button type="button" className="secondary region-secondary" disabled={!canEdit} onClick={captureStart}>
           Set Start
         </button>
-        <button type="button" className="secondary region-secondary" disabled={!isEnabled} onClick={captureEnd}>
+        <button type="button" className="secondary region-secondary" disabled={!canEdit} onClick={captureEnd}>
           Set End
         </button>
-        <button type="button" disabled={!isEnabled} onClick={playRegion}>
+        <button type="button" disabled={!canPlayback} onClick={playRegion}>
           Play Region
         </button>
-        <button type="button" className="secondary region-secondary" disabled={!isEnabled} onClick={toggleLoop}>
+        <button type="button" className="secondary region-secondary" disabled={!canPlayback} onClick={toggleLoop}>
           {region.isLooping ? 'Loop On' : 'Loop Off'}
         </button>
-        <button type="button" className="secondary region-secondary" disabled={!isEnabled || !region.isLooping} onClick={stopLoop}>
+        <button type="button" className="secondary region-secondary" disabled={!canPlayback || !region.isLooping} onClick={stopLoop}>
           Stop Loop
         </button>
-        <button type="button" className="secondary region-secondary" disabled={!isEnabled} onClick={() => seekTo(region.startTime)}>
+        <button type="button" className="secondary region-secondary" disabled={!canPlayback} onClick={() => seekTo(region.startTime)}>
           Seek Start
         </button>
+      </div>
+    </div>
+  );
+}
+
+function WobbleWorkshopPanel({
+  controlFrame,
+  frame,
+  setSettings,
+  settings,
+}: {
+  controlFrame: CueControlFrame;
+  frame: VisualControlFrame | null;
+  setSettings: Dispatch<SetStateAction<WobbleWorkshopSettings>>;
+  settings: WobbleWorkshopSettings;
+}) {
+  const [swayDirection, setSwayDirection] = useState(1);
+  const [presetName, setPresetName] = useState('Baseline groove');
+  const [presetNotes, setPresetNotes] = useState('');
+  const [presets, setPresets] = useState<WobbleWorkshopPreset[]>(loadStoredWorkshopPresets);
+  const lastSwayPulseAtRef = useRef(-Infinity);
+  const wobblers = controlFrame.wobblers;
+  const manual = settings.manualEnergy;
+  const bounce = clamp(
+    (wobblers.bounceAmount * settings.audioInfluence + manual) * settings.bounceScale,
+    0,
+    1,
+  );
+  const bob = clamp(
+    (wobblers.heavyBob * settings.audioInfluence + manual) * settings.bobScale,
+    0,
+    1,
+  );
+  const sway = clamp(
+    (wobblers.swaySpeed * settings.audioInfluence + manual) * settings.swayScale,
+    0,
+    1,
+  );
+  const lean = clamp(
+    (wobblers.leanAmount * settings.audioInfluence + manual) * settings.leanScale,
+    0,
+    1,
+  );
+  const jump = clamp(
+    (wobblers.jumpTrigger * settings.audioInfluence + manual) * settings.jumpScale,
+    0,
+    1,
+  );
+  const detail = clamp(
+    (wobblers.detailMotion * settings.audioInfluence + manual) * settings.detailScale,
+    0,
+    1,
+  );
+  const activity = clamp(wobblers.crowdActivity * settings.audioInfluence + manual, 0, 1);
+  const glow = clamp(
+    ((frame?.lightIntensity ?? 0) * settings.audioInfluence + manual) * settings.glowScale,
+    0,
+    1,
+  );
+  const expression = jump > 0.48 || frame?.kickPulse ? 'jump' : detail > 0.58 ? 'hype' : activity > 0.34 ? 'party' : 'idle';
+  const shouldStepSway = Boolean(
+    frame &&
+      (frame.beatPulse ||
+        frame.kickPulse ||
+        (frame.tempoConfidence < 0.25 && frame.onsetPulse)),
+  );
+
+  useEffect(() => {
+    if (!frame || !shouldStepSway || frame.time === lastSwayPulseAtRef.current) return;
+    lastSwayPulseAtRef.current = frame.time;
+    setSwayDirection((current) => current * -1);
+  }, [frame, shouldStepSway]);
+
+  function handleSavePreset() {
+    const preset: WobbleWorkshopPreset = {
+      id: crypto.randomUUID(),
+      name: presetName.trim() || `Workshop preset ${presets.length + 1}`,
+      notes: presetNotes.trim() || undefined,
+      settings,
+      createdAt: new Date().toISOString(),
+    };
+    const next = [preset, ...presets].slice(0, 24);
+    setPresets(next);
+    localStorage.setItem(wobbleWorkshopPresetsStorageKey, JSON.stringify(next));
+    setPresetName('');
+    setPresetNotes('');
+  }
+
+  function handleLoadPreset(preset: WobbleWorkshopPreset) {
+    setSettings(preset.settings);
+  }
+
+  function handleDeletePreset(id: string) {
+    const next = presets.filter((preset) => preset.id !== id);
+    setPresets(next);
+    localStorage.setItem(wobbleWorkshopPresetsStorageKey, JSON.stringify(next));
+  }
+
+  return (
+    <div className="wobble-workshop">
+      <div
+        className="hero-wobbler-stage"
+        style={{ '--stage-glow': glow } as CSSProperties}
+      >
+        <HeroWobbler
+          activity={activity}
+          bob={bob}
+          bounce={bounce}
+          detail={detail}
+          expression={expression}
+          glow={glow}
+          jump={jump}
+          lean={lean}
+          sway={sway}
+          swayDirection={swayDirection}
+        />
+      </div>
+
+      <div className="workshop-controls">
+        <div className="workshop-control-group">
+          <Slider
+            label="Audio Influence"
+            max={1}
+            min={0}
+            step={0.01}
+            value={settings.audioInfluence}
+            onChange={(audioInfluence) =>
+              setSettings((current) => ({ ...current, audioInfluence }))
+            }
+          />
+          <Slider
+            label="Manual Test"
+            max={1}
+            min={0}
+            step={0.01}
+            value={settings.manualEnergy}
+            onChange={(manualEnergy) => setSettings((current) => ({ ...current, manualEnergy }))}
+          />
+        </div>
+
+        <div className="workshop-control-group">
+          <Slider
+            label="Bounce"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.bounceScale}
+            onChange={(bounceScale) => setSettings((current) => ({ ...current, bounceScale }))}
+          />
+          <Slider
+            label="Heavy Bob"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.bobScale}
+            onChange={(bobScale) => setSettings((current) => ({ ...current, bobScale }))}
+          />
+          <Slider
+            label="Sway"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.swayScale}
+            onChange={(swayScale) => setSettings((current) => ({ ...current, swayScale }))}
+          />
+          <Slider
+            label="Lean"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.leanScale}
+            onChange={(leanScale) => setSettings((current) => ({ ...current, leanScale }))}
+          />
+        </div>
+
+        <div className="workshop-control-group">
+          <Slider
+            label="Jump"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.jumpScale}
+            onChange={(jumpScale) => setSettings((current) => ({ ...current, jumpScale }))}
+          />
+          <Slider
+            label="Detail"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.detailScale}
+            onChange={(detailScale) => setSettings((current) => ({ ...current, detailScale }))}
+          />
+          <Slider
+            label="Glow"
+            max={2}
+            min={0}
+            step={0.01}
+            value={settings.glowScale}
+            onChange={(glowScale) => setSettings((current) => ({ ...current, glowScale }))}
+          />
+        </div>
+
+        <dl className="metric-grid workshop-readout">
+          <Metric label="Bounce" value={formatPercent(bounce)} />
+          <Metric label="Bob" value={formatPercent(bob)} />
+          <Metric label="Sway" value={formatPercent(sway)} />
+          <Metric label="Lean" value={formatPercent(lean)} />
+          <Metric label="Jump" value={formatPercent(jump)} />
+          <Metric label="Detail" value={formatPercent(detail)} />
+          <Metric label="Glow" value={formatPercent(glow)} />
+        </dl>
+
+        <div className="workshop-presets">
+          <div className="workshop-preset-form">
+            <input
+              aria-label="Workshop preset name"
+              maxLength={48}
+              placeholder="Preset name"
+              type="text"
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+            />
+            <input
+              aria-label="Workshop preset notes"
+              maxLength={120}
+              placeholder="Notes for this motion pass"
+              type="text"
+              value={presetNotes}
+              onChange={(event) => setPresetNotes(event.target.value)}
+            />
+            <button type="button" onClick={handleSavePreset}>
+              Save Preset
+            </button>
+          </div>
+
+          <div className="workshop-preset-list">
+            {presets.length === 0 ? (
+              <p>No workshop presets saved yet.</p>
+            ) : (
+              presets.slice(0, 5).map((preset) => (
+                <div key={preset.id} className="workshop-preset-row">
+                  <div>
+                    <strong>{preset.name}</strong>
+                    {preset.notes ? <span>{preset.notes}</span> : null}
+                  </div>
+                  <button type="button" className="secondary" onClick={() => handleLoadPreset(preset)}>
+                    Load
+                  </button>
+                  <button type="button" className="secondary" onClick={() => handleDeletePreset(preset.id)}>
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroWobbler({
+  activity,
+  bob,
+  bounce,
+  detail,
+  expression,
+  glow,
+  jump,
+  lean,
+  sway,
+  swayDirection,
+}: {
+  activity: number;
+  bob: number;
+  bounce: number;
+  detail: number;
+  expression: 'idle' | 'party' | 'hype' | 'jump';
+  glow: number;
+  jump: number;
+  lean: number;
+  sway: number;
+  swayDirection: number;
+}) {
+  return (
+    <div
+      className="hero-wobbler-groove"
+      style={
+        {
+          '--activity': activity,
+          '--bob': bob,
+          '--bounce': bounce,
+          '--detail': detail,
+          '--glow': glow,
+          '--jump': jump,
+          '--lean': lean,
+          '--sway': sway,
+          '--sway-side': swayDirection,
+        } as CSSProperties
+      }
+    >
+      <div className={`hero-wobbler expression-${expression}`}>
+        <div className="hero-shadow" />
+        <div className="hero-body">
+          <div className="hero-cap">
+            <span className="hero-cap-mark">W</span>
+          </div>
+          <div className="hero-brim" />
+          <div className="hero-face">
+            <div className="hero-glasses">
+              <span />
+              <span />
+            </div>
+            <div className="hero-mouth">
+              <span />
+            </div>
+            <div className="hero-cheek left" />
+            <div className="hero-cheek right" />
+          </div>
+          <div className="hero-bandana">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="hero-belt" />
+          <div className="hero-arm hero-arm-left">
+            <span className="hero-hand horns" />
+          </div>
+          <div className="hero-arm hero-arm-right">
+            <span className="hero-mic" />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1558,6 +2260,31 @@ function loadStoredFingerprints() {
   }
 }
 
+function loadStoredWorkshopSettings(): WobbleWorkshopSettings {
+  try {
+    const stored = localStorage.getItem(wobbleWorkshopSettingsStorageKey);
+    if (!stored) return defaultWobbleWorkshopSettings;
+    const parsed = JSON.parse(stored) as Partial<WobbleWorkshopSettings>;
+    return {
+      ...defaultWobbleWorkshopSettings,
+      ...parsed,
+    };
+  } catch {
+    return defaultWobbleWorkshopSettings;
+  }
+}
+
+function loadStoredWorkshopPresets(): WobbleWorkshopPreset[] {
+  try {
+    const stored = localStorage.getItem(wobbleWorkshopPresetsStorageKey);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? (parsed as WobbleWorkshopPreset[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
 
@@ -1576,6 +2303,27 @@ function getKeyboardSeekDelta(event: KeyboardEvent) {
 function seekAudioElement(audioElement: HTMLAudioElement, deltaSeconds: number) {
   const duration = Number.isFinite(audioElement.duration) ? audioElement.duration : Infinity;
   audioElement.currentTime = clamp(audioElement.currentTime + deltaSeconds, 0, duration);
+}
+
+function clampViewWindow(startRatio: number, endRatio: number): WaveformViewWindow {
+  const size = clamp(endRatio - startRatio, 0.01, 1);
+  let start = startRatio;
+  let end = start + size;
+
+  if (start < 0) {
+    start = 0;
+    end = size;
+  }
+
+  if (end > 1) {
+    end = 1;
+    start = 1 - size;
+  }
+
+  return {
+    startRatio: clamp(start, 0, 1),
+    endRatio: clamp(end, 0, 1),
+  };
 }
 
 function formatDecimal(value: number) {

@@ -81,6 +81,7 @@ export type CueFingerprint = {
   id: string;
   label: CueLabel;
   sourceName: string;
+  sourceClipId?: string;
   startTime: number;
   endTime: number;
   descriptorSummary: DescriptorSummary;
