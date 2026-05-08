@@ -22,12 +22,30 @@ const uiFrameIntervalMs = 50;
 const descriptorHistoryWindowSeconds = 180;
 const waveformOverviewBuckets = 1600;
 
+type PendingFrameEvents = {
+  beatPulse: boolean;
+  impact: number;
+  kickPulse: boolean;
+  onsetPulse: boolean;
+};
+
 const defaultSettings: TuningSettings = {
   smoothing: 0.72,
   noiseFloor: 0.002,
   onsetSensitivity: 0.48,
   kickSensitivity: 0.45,
   eventCooldownMs: 115,
+};
+
+const emptyPendingFrameEvents: PendingFrameEvents = {
+  beatPulse: false,
+  impact: 0,
+  kickPulse: false,
+  onsetPulse: false,
+};
+
+type CapturableAudioElement = HTMLAudioElement & {
+  captureStream?: () => MediaStream;
 };
 
 export function useAudioEngine() {
@@ -62,6 +80,7 @@ export function useAudioEngine() {
   const sourceAudioBufferRef = useRef<AudioBuffer | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const analyzerStateRef = useRef(createAnalyzerState());
+  const pendingFrameEventsRef = useRef<PendingFrameEvents>({ ...emptyPendingFrameEvents });
   const lastUiFrameAtRef = useRef(0);
   const settingsRef = useRef(settings);
   const sourceKindRef = useRef(sourceKind);
@@ -117,6 +136,12 @@ export function useAudioEngine() {
         audioBuffersRef.current = result.buffers;
 
         if (nextFrame.onsetPulse || nextFrame.kickPulse || nextFrame.beatPulse) {
+          pendingFrameEventsRef.current = {
+            beatPulse: pendingFrameEventsRef.current.beatPulse || nextFrame.beatPulse,
+            impact: Math.max(pendingFrameEventsRef.current.impact, nextFrame.impact),
+            kickPulse: pendingFrameEventsRef.current.kickPulse || nextFrame.kickPulse,
+            onsetPulse: pendingFrameEventsRef.current.onsetPulse || nextFrame.onsetPulse,
+          };
           setEventCounts((current) => ({
             onset: current.onset + (nextFrame.onsetPulse ? 1 : 0),
             kick: current.kick + (nextFrame.kickPulse ? 1 : 0),
@@ -126,12 +151,21 @@ export function useAudioEngine() {
 
         const now = performance.now();
         if (now - lastUiFrameAtRef.current >= uiFrameIntervalMs) {
+          const pendingEvents = pendingFrameEventsRef.current;
+          const uiFrame = {
+            ...nextFrame,
+            beatPulse: nextFrame.beatPulse || pendingEvents.beatPulse,
+            impact: Math.max(nextFrame.impact, pendingEvents.impact),
+            kickPulse: nextFrame.kickPulse || pendingEvents.kickPulse,
+            onsetPulse: nextFrame.onsetPulse || pendingEvents.onsetPulse,
+          };
+          pendingFrameEventsRef.current = { ...emptyPendingFrameEvents };
           const sourceTime =
             sourceKindRef.current === 'file' && audioRef.current
               ? audioRef.current.currentTime
-              : nextFrame.time;
+              : uiFrame.time;
           const descriptor = createCueDescriptorFrame(
-            nextFrame,
+            uiFrame,
             sourceTime,
             descriptorAccumulatorRef.current,
           );
@@ -144,7 +178,7 @@ export function useAudioEngine() {
           setLatestDescriptor(descriptor);
           setDescriptorHistoryCount(descriptorHistoryRef.current.length);
           setDescriptorSummary(summarizeDescriptors(descriptorHistoryRef.current));
-          setFrame(nextFrame);
+          setFrame(uiFrame);
           setBufferVersion((version) => version + 1);
         }
       }
@@ -181,6 +215,7 @@ export function useAudioEngine() {
     sourceAudioBufferRef.current = null;
 
     analyzerStateRef.current = createAnalyzerState();
+    pendingFrameEventsRef.current = { ...emptyPendingFrameEvents };
     descriptorAccumulatorRef.current = createDescriptorAccumulator();
     descriptorHistoryRef.current = [];
     audioBuffersRef.current = {
@@ -333,7 +368,6 @@ export function useAudioEngine() {
         resetPipeline();
 
         const context = await getContext();
-        const analyser = createAnalyser(context);
         const audioElement = audioRef.current;
 
         if (!audioElement) {
@@ -342,25 +376,34 @@ export function useAudioEngine() {
 
         const objectUrl = URL.createObjectURL(file);
         objectUrlRef.current = objectUrl;
-        audioElement.src = objectUrl;
         audioElement.crossOrigin = 'anonymous';
-
-        const source =
-          mediaElementSourceRef.current ?? context.createMediaElementSource(audioElement);
-        mediaElementSourceRef.current = source;
-        source.connect(analyser);
-        analyser.connect(context.destination);
-
-        sourceRef.current = source;
-        setSourceKind('file');
-        setIsRunning(true);
-        startAnalysisLoop();
+        audioElement.muted = false;
+        audioElement.volume = 1;
+        audioElement.src = objectUrl;
+        audioElement.load();
 
         if (shouldAutoplay) {
           await audioElement.play();
         } else {
           audioElement.currentTime = 0;
         }
+
+        const analyser = createAnalyser(context);
+        const capturedStream = (audioElement as CapturableAudioElement).captureStream?.();
+        const hasCapturedAudio = Boolean(capturedStream?.getAudioTracks().length);
+        const source = capturedStream && hasCapturedAudio
+          ? context.createMediaStreamSource(capturedStream)
+          : mediaElementSourceRef.current ?? context.createMediaElementSource(audioElement);
+        if (!hasCapturedAudio) {
+          mediaElementSourceRef.current = source as MediaElementAudioSourceNode;
+          analyser.connect(context.destination);
+        }
+        source.connect(analyser);
+
+        sourceRef.current = source;
+        setSourceKind('file');
+        setIsRunning(true);
+        startAnalysisLoop();
 
         void decodeSourceAudio(file, context).then((decodedSource) => {
           sourceAudioBufferRef.current = decodedSource.audioBuffer;
@@ -402,7 +445,11 @@ export function useAudioEngine() {
   useEffect(() => {
     return () => {
       resetPipeline();
-      void contextRef.current?.close();
+      const context = contextRef.current;
+      contextRef.current = null;
+      if (context && context.state !== 'closed') {
+        void context.close();
+      }
     };
   }, [resetPipeline]);
 

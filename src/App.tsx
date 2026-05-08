@@ -9,6 +9,7 @@ import type {
   SetStateAction,
 } from 'react';
 import './App.css';
+import { detectNamedCues } from './audio/cueDetectors';
 import { summarizeDescriptors } from './audio/descriptors';
 import { createCueControlFrame } from './audio/outputControls';
 import { useAudioEngine } from './audio/useAudioEngine';
@@ -154,6 +155,9 @@ const fullWaveformView: WaveformViewWindow = {
   endRatio: 1,
 };
 
+const workshopMovementMax = 2;
+const workshopMovementSliderMax = 4;
+
 const calibrationFixtures = [
   {
     name: '60 Hz',
@@ -256,9 +260,13 @@ function App() {
     sourceKind === 'file' ? currentSourceTime : (latestDescriptor?.sourceTime ?? currentSourceTime);
   const canEditCueRegion =
     isSeekableFile || (isLiveCapture && isRunning && displayedSourceTime > 0);
+  const namedCueControls = useMemo(
+    () => detectNamedCues(latestDescriptor, savedFingerprints),
+    [latestDescriptor, savedFingerprints],
+  );
   const cueControlFrame = useMemo(
-    () => createCueControlFrame(frame, latestDescriptor),
-    [frame, latestDescriptor],
+    () => createCueControlFrame(frame, latestDescriptor, namedCueControls),
+    [frame, latestDescriptor, namedCueControls],
   );
 
   useEffect(() => {
@@ -687,6 +695,7 @@ function App() {
             <Metric label="Onsets" value={String(eventCounts.onset)} />
             <Metric label="Kicks" value={String(eventCounts.kick)} />
             <Metric label="Beats" value={String(eventCounts.beat)} />
+            <Metric label="Snare Cue" value={formatPercent(namedCueControls.snareConfidence)} />
           </dl>
         </Panel>
 
@@ -1750,40 +1759,47 @@ function WobbleWorkshopPanel({
   const [presetName, setPresetName] = useState('Baseline groove');
   const [presetNotes, setPresetNotes] = useState('');
   const [presets, setPresets] = useState<WobbleWorkshopPreset[]>(loadStoredWorkshopPresets);
+  const [hitEnvelope, setHitEnvelope] = useState(0);
   const lastSwayPulseAtRef = useRef(-Infinity);
+  const lastHitPulseAtRef = useRef(-Infinity);
   const wobblers = controlFrame.wobblers;
   const manual = settings.manualEnergy;
   const bounce = clamp(
     (wobblers.bounceAmount * settings.audioInfluence + manual) * settings.bounceScale,
     0,
-    1,
+    workshopMovementMax,
   );
   const bob = clamp(
     (wobblers.heavyBob * settings.audioInfluence + manual) * settings.bobScale,
     0,
-    1,
+    workshopMovementMax,
   );
   const sway = clamp(
     (wobblers.swaySpeed * settings.audioInfluence + manual) * settings.swayScale,
     0,
-    1,
+    workshopMovementMax,
   );
   const lean = clamp(
     (wobblers.leanAmount * settings.audioInfluence + manual) * settings.leanScale,
     0,
-    1,
+    workshopMovementMax,
   );
-  const jump = clamp(
-    (wobblers.jumpTrigger * settings.audioInfluence + manual) * settings.jumpScale,
-    0,
-    1,
-  );
+  const hitReactionInput = wobblers.hitReaction * settings.audioInfluence;
+  const snarePop = clamp(wobblers.snarePop * settings.audioInfluence, 0, 1);
+  const jumpInput = wobblers.jumpTrigger * settings.audioInfluence + manual;
+  const jump = clamp((jumpInput + hitEnvelope * 1.15) * settings.jumpScale, 0, workshopMovementMax);
   const detail = clamp(
     (wobblers.detailMotion * settings.audioInfluence + manual) * settings.detailScale,
     0,
     1,
   );
   const activity = clamp(wobblers.crowdActivity * settings.audioInfluence + manual, 0, 1);
+  const wobbleDance = clamp(
+    (activity * 0.26 + hitEnvelope * 0.62 + snarePop * 0.48 + hitReactionInput * 0.3) *
+      settings.swayScale,
+    0,
+    workshopMovementMax,
+  );
   const glow = clamp(
     ((frame?.lightIntensity ?? 0) * settings.audioInfluence + manual) * settings.glowScale,
     0,
@@ -1802,6 +1818,29 @@ function WobbleWorkshopPanel({
     lastSwayPulseAtRef.current = frame.time;
     setSwayDirection((current) => current * -1);
   }, [frame, shouldStepSway]);
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      if (!frame) {
+        setHitEnvelope(0);
+        return;
+      }
+
+      const hasHitPulse = frame.kickPulse || frame.onsetPulse;
+      if (hasHitPulse && frame.time !== lastHitPulseAtRef.current) {
+        lastHitPulseAtRef.current = frame.time;
+        const pulseBoost = frame.kickPulse ? 1.15 : 0.9;
+        setHitEnvelope((current) =>
+          clamp(Math.max(current, hitReactionInput * pulseBoost, 0.28), 0, 1),
+        );
+        return;
+      }
+
+      setHitEnvelope((current) => (current <= 0.015 ? 0 : current * 0.68));
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [frame, hitReactionInput]);
 
   function handleSavePreset() {
     const preset: WobbleWorkshopPreset = {
@@ -1843,8 +1882,10 @@ function WobbleWorkshopPanel({
           glow={glow}
           jump={jump}
           lean={lean}
+          snarePop={snarePop}
           sway={sway}
           swayDirection={swayDirection}
+          wobbleDance={wobbleDance}
         />
       </div>
 
@@ -1873,7 +1914,7 @@ function WobbleWorkshopPanel({
         <div className="workshop-control-group">
           <Slider
             label="Bounce"
-            max={2}
+            max={workshopMovementSliderMax}
             min={0}
             step={0.01}
             value={settings.bounceScale}
@@ -1881,7 +1922,7 @@ function WobbleWorkshopPanel({
           />
           <Slider
             label="Heavy Bob"
-            max={2}
+            max={workshopMovementSliderMax}
             min={0}
             step={0.01}
             value={settings.bobScale}
@@ -1889,7 +1930,7 @@ function WobbleWorkshopPanel({
           />
           <Slider
             label="Sway"
-            max={2}
+            max={workshopMovementSliderMax}
             min={0}
             step={0.01}
             value={settings.swayScale}
@@ -1897,7 +1938,7 @@ function WobbleWorkshopPanel({
           />
           <Slider
             label="Lean"
-            max={2}
+            max={workshopMovementSliderMax}
             min={0}
             step={0.01}
             value={settings.leanScale}
@@ -1908,7 +1949,7 @@ function WobbleWorkshopPanel({
         <div className="workshop-control-group">
           <Slider
             label="Jump"
-            max={2}
+            max={workshopMovementSliderMax}
             min={0}
             step={0.01}
             value={settings.jumpScale}
@@ -1936,8 +1977,10 @@ function WobbleWorkshopPanel({
           <Metric label="Bounce" value={formatPercent(bounce)} />
           <Metric label="Bob" value={formatPercent(bob)} />
           <Metric label="Sway" value={formatPercent(sway)} />
+          <Metric label="Wobble" value={formatPercent(wobbleDance)} />
           <Metric label="Lean" value={formatPercent(lean)} />
           <Metric label="Jump" value={formatPercent(jump)} />
+          <Metric label="Snare Pop" value={formatPercent(snarePop)} />
           <Metric label="Detail" value={formatPercent(detail)} />
           <Metric label="Glow" value={formatPercent(glow)} />
         </dl>
@@ -2000,8 +2043,10 @@ function HeroWobbler({
   glow,
   jump,
   lean,
+  snarePop,
   sway,
   swayDirection,
+  wobbleDance,
 }: {
   activity: number;
   bob: number;
@@ -2011,8 +2056,10 @@ function HeroWobbler({
   glow: number;
   jump: number;
   lean: number;
+  snarePop: number;
   sway: number;
   swayDirection: number;
+  wobbleDance: number;
 }) {
   return (
     <div
@@ -2026,8 +2073,10 @@ function HeroWobbler({
           '--glow': glow,
           '--jump': jump,
           '--lean': lean,
+          '--snare-pop': snarePop,
           '--sway': sway,
           '--sway-side': swayDirection,
+          '--wobble-dance': wobbleDance,
         } as CSSProperties
       }
     >

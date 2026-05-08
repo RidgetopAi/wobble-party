@@ -105,9 +105,15 @@ export type WobblerControls = {
   swaySpeed: number;
   leanAmount: number;
   jumpTrigger: number;
+  hitReaction: number;
+  snarePop: number;
   crowdActivity: number;
   detailMotion: number;
   heavyBob: number;
+};
+
+export type NamedCueControls = {
+  snareConfidence: number;
 };
 
 export type CameraControls = {
@@ -123,6 +129,7 @@ export type CueControlFrame = {
   lighting: LightingControls;
   wobblers: WobblerControls;
   camera: CameraControls;
+  cues: NamedCueControls;
 };
 
 export type TuningSettings = {
