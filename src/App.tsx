@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
 import type {
   CSSProperties,
   ChangeEvent,
@@ -138,6 +139,16 @@ type WobbleWorkshopPreset = {
   createdAt: string;
 };
 
+type ThreeWobblerSettings = {
+  cameraAngle: number;
+  forwardTravel: number;
+  intensity: number;
+  leanRadius: number;
+  paused: boolean;
+  settle: number;
+  speed: number;
+};
+
 const defaultWobbleWorkshopSettings: WobbleWorkshopSettings = {
   audioInfluence: 1,
   manualEnergy: 0,
@@ -148,6 +159,16 @@ const defaultWobbleWorkshopSettings: WobbleWorkshopSettings = {
   jumpScale: 1,
   detailScale: 1,
   glowScale: 1,
+};
+
+const defaultThreeWobblerSettings: ThreeWobblerSettings = {
+  cameraAngle: 0.52,
+  forwardTravel: 0.7,
+  intensity: 0.86,
+  leanRadius: 0.78,
+  paused: false,
+  settle: 0.64,
+  speed: 0.72,
 };
 
 const fullWaveformView: WaveformViewWindow = {
@@ -211,6 +232,9 @@ function App() {
   const [busProofPosition, setBusProofPosition] = useState<FloatingPanelPosition>({ x: 28, y: 92 });
   const [wobbleWorkshopSettings, setWobbleWorkshopSettings] = useState<WobbleWorkshopSettings>(
     loadStoredWorkshopSettings,
+  );
+  const [threeWobblerSettings, setThreeWobblerSettings] = useState<ThreeWobblerSettings>(
+    defaultThreeWobblerSettings,
   );
   const [roughClips, setRoughClips] = useState<RoughCueClipRecord[]>([]);
   const [activeRoughClipId, setActiveRoughClipId] = useState<string | null>(null);
@@ -610,6 +634,15 @@ function App() {
             frame={frame}
             settings={wobbleWorkshopSettings}
             setSettings={setWobbleWorkshopSettings}
+          />
+        </Panel>
+      </section>
+
+      <section className="three-prototype-section">
+        <Panel title="3D Wobbler Prototype">
+          <ThreeWobblerPrototype
+            settings={threeWobblerSettings}
+            setSettings={setThreeWobblerSettings}
           />
         </Panel>
       </section>
@@ -1739,6 +1772,393 @@ function CueRegionPanel({
         <button type="button" className="secondary region-secondary" disabled={!canPlayback} onClick={() => seekTo(region.startTime)}>
           Seek Start
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ThreeWobblerPrototype({
+  setSettings,
+  settings,
+}: {
+  setSettings: Dispatch<SetStateAction<ThreeWobblerSettings>>;
+  settings: ThreeWobblerSettings;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const renderCanvas = canvas;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: renderCanvas });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf7f8fb);
+    scene.fog = new THREE.Fog(0xf7f8fb, 7, 13);
+
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 80);
+    const lookTarget = new THREE.Vector3(0, 1.05, 0);
+
+    const stageMaterial = new THREE.MeshStandardMaterial({
+      color: 0x273044,
+      metalness: 0.12,
+      roughness: 0.74,
+    });
+    const stage = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 3.8, 0.18, 72), stageMaterial);
+    stage.position.y = -0.09;
+    stage.receiveShadow = true;
+    scene.add(stage);
+
+    const grid = new THREE.GridHelper(7.2, 18, 0x2dd4bf, 0xd7dde8);
+    grid.position.y = 0.014;
+    scene.add(grid);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    const baseMaterial = new THREE.MeshStandardMaterial({
+      color: 0x101827,
+      metalness: 0.08,
+      roughness: 0.54,
+    });
+    const purpleMaterial = new THREE.MeshStandardMaterial({
+      color: 0x7c3aed,
+      emissive: 0x24104f,
+      emissiveIntensity: 0.16,
+      roughness: 0.48,
+    });
+    const tealMaterial = new THREE.MeshStandardMaterial({
+      color: 0x14b8a6,
+      emissive: 0x063f3b,
+      emissiveIntensity: 0.35,
+      roughness: 0.36,
+    });
+    const pinkMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf472b6,
+      emissive: 0x5f123e,
+      emissiveIntensity: 0.28,
+      roughness: 0.42,
+    });
+    const yellowMaterial = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      emissive: 0x6b4a00,
+      emissiveIntensity: 0.26,
+      roughness: 0.36,
+    });
+    const blackMaterial = new THREE.MeshStandardMaterial({
+      color: 0x050816,
+      roughness: 0.45,
+    });
+    const whiteMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: 0.38,
+    });
+
+    const contactShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.78, 48),
+      new THREE.MeshBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.2 }),
+    );
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.position.y = 0.018;
+    root.add(contactShadow);
+
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.58, 0.2, 48), baseMaterial);
+    base.position.y = 0.1;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    root.add(base);
+
+    const bodyPivot = new THREE.Group();
+    bodyPivot.position.y = 0.18;
+    root.add(bodyPivot);
+
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.52, 1.34, 14, 28), purpleMaterial);
+    body.position.y = 0.92;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    bodyPivot.add(body);
+
+    const face = new THREE.Group();
+    face.position.set(0, 1.36, 0.47);
+    bodyPivot.add(face);
+
+    const glassesLeft = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.18, 0.08), blackMaterial);
+    glassesLeft.position.x = -0.22;
+    glassesLeft.castShadow = true;
+    face.add(glassesLeft);
+
+    const glassesRight = glassesLeft.clone();
+    glassesRight.position.x = 0.22;
+    face.add(glassesRight);
+
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.06), blackMaterial);
+    bridge.position.z = 0.01;
+    face.add(bridge);
+
+    const leftEq = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.085), tealMaterial);
+    leftEq.position.set(-0.22, -0.02, 0.052);
+    face.add(leftEq);
+
+    const rightEq = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.085), yellowMaterial);
+    rightEq.position.set(0.22, -0.02, 0.052);
+    face.add(rightEq);
+
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.08), pinkMaterial);
+    mouth.position.set(0, -0.28, 0.05);
+    face.add(mouth);
+
+    const cap = new THREE.Mesh(new THREE.CapsuleGeometry(0.46, 0.2, 8, 24), blackMaterial);
+    cap.position.set(0, 1.87, -0.02);
+    cap.rotation.z = Math.PI / 2;
+    cap.scale.set(1, 0.62, 0.72);
+    cap.castShadow = true;
+    bodyPivot.add(cap);
+
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.12, 0.36), tealMaterial);
+    brim.position.set(0.12, 1.75, 0.48);
+    brim.rotation.x = -0.12;
+    brim.castShadow = true;
+    bodyPivot.add(brim);
+
+    const capMark = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.018, 8, 24), whiteMaterial);
+    capMark.position.set(-0.02, 1.89, 0.43);
+    capMark.scale.x = 0.72;
+    bodyPivot.add(capMark);
+
+    const bandana = new THREE.Mesh(new THREE.CylinderGeometry(0.54, 0.44, 0.2, 5), blackMaterial);
+    bandana.position.set(0, 0.72, -0.02);
+    bandana.rotation.y = Math.PI / 5;
+    bandana.scale.z = 0.7;
+    bandana.castShadow = true;
+    bodyPivot.add(bandana);
+
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.035, 8, 48), tealMaterial);
+    belt.position.y = 0.32;
+    belt.rotation.x = Math.PI / 2;
+    bodyPivot.add(belt);
+
+    const leftArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.62, 8, 16), purpleMaterial);
+    leftArm.position.set(-0.64, 1.02, 0.02);
+    leftArm.rotation.z = -0.72;
+    leftArm.castShadow = true;
+    bodyPivot.add(leftArm);
+
+    const rightArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.58, 8, 16), purpleMaterial);
+    rightArm.position.set(0.64, 1.04, 0.04);
+    rightArm.rotation.z = 0.92;
+    rightArm.castShadow = true;
+    bodyPivot.add(rightArm);
+
+    const leftHand = new THREE.Mesh(new THREE.SphereGeometry(0.12, 18, 18), pinkMaterial);
+    leftHand.position.set(-0.92, 1.3, 0.06);
+    leftHand.castShadow = true;
+    bodyPivot.add(leftHand);
+
+    const mic = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.24, 8, 12), blackMaterial);
+    mic.position.set(0.9, 1.36, 0.2);
+    mic.rotation.z = 1.18;
+    bodyPivot.add(mic);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+    keyLight.position.set(3, 5, 3);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.HemisphereLight(0xdbeafe, 0x2f1f4f, 1.9);
+    scene.add(fillLight);
+
+    const pinkLight = new THREE.PointLight(0xf472b6, 14, 8);
+    pinkLight.position.set(-2.4, 1.2, -1.8);
+    scene.add(pinkLight);
+
+    const tealLight = new THREE.PointLight(0x2dd4bf, 12, 8);
+    tealLight.position.set(2.2, 1.5, 1.8);
+    scene.add(tealLight);
+
+    let animationFrame = 0;
+    let lastFrameTime = performance.now();
+    let simTime = 0;
+
+    function resizeRenderer() {
+      const { clientHeight, clientWidth } = renderCanvas;
+      const width = Math.max(1, clientWidth);
+      const height = Math.max(1, clientHeight);
+      const sizeChanged = renderCanvas.width !== Math.floor(width * renderer.getPixelRatio()) ||
+        renderCanvas.height !== Math.floor(height * renderer.getPixelRatio());
+
+      if (sizeChanged) {
+        renderer.setSize(width, height, false);
+      }
+
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+
+    function animate() {
+      const now = performance.now();
+      const delta = Math.min((now - lastFrameTime) / 1000, 0.05);
+      lastFrameTime = now;
+      const current = settingsRef.current;
+      if (!current.paused) simTime += delta * current.speed;
+
+      const phase = simTime * Math.PI * 2;
+      const side = Math.sin(phase);
+      const forward = Math.cos(phase);
+      const impact = 0.5 + 0.5 * Math.sin(phase * 2.0 - 0.45);
+      const intensity = current.intensity;
+      const lean = current.leanRadius * intensity;
+      const settle = current.settle * intensity;
+
+      bodyPivot.rotation.z = side * 0.48 * lean;
+      bodyPivot.rotation.x = (forward * 0.38 - impact * 0.08) * lean;
+      bodyPivot.rotation.y = side * forward * 0.16 * lean;
+      bodyPivot.position.set(side * 0.04 * lean, 0.18 - impact * 0.04 * settle, forward * 0.28 * current.forwardTravel * intensity);
+
+      const squash = impact * 0.18 * settle;
+      body.scale.set(1 + squash * 0.72, 1 - squash, 1 + squash * 0.42);
+      base.scale.set(1 + squash * 0.28, 1 - squash * 0.16, 1 + squash * 0.28);
+      contactShadow.scale.set(1 + Math.abs(side) * 0.18 + impact * 0.18, 1 + forward * 0.08, 1);
+      contactShadow.material.opacity = 0.16 + impact * 0.1;
+
+      cap.rotation.y = side * 0.11;
+      brim.rotation.z = side * -0.08;
+      mouth.scale.y = 0.8 + impact * 1.7;
+      leftEq.scale.y = 1 + Math.max(0, side) * 2.4 + impact * 1.2;
+      rightEq.scale.y = 1 + Math.max(0, -side) * 2.4 + impact * 1.2;
+      leftArm.rotation.z = -0.82 - side * 0.24 - impact * 0.22;
+      rightArm.rotation.z = 0.95 - side * 0.18 + impact * 0.18;
+      belt.scale.setScalar(1 + impact * 0.1);
+
+      const cameraDistance = 5.2;
+      const orbit = current.cameraAngle;
+      camera.position.set(Math.sin(orbit) * cameraDistance, 2.4, Math.cos(orbit) * cameraDistance);
+      camera.lookAt(lookTarget);
+
+      pinkLight.intensity = 9 + impact * 9;
+      tealLight.intensity = 8 + Math.abs(side) * 8;
+
+      resizeRenderer();
+      renderer.render(scene, camera);
+      animationFrame = window.requestAnimationFrame(animate);
+    }
+
+    animate();
+    window.addEventListener('resize', resizeRenderer);
+
+    return () => {
+      window.removeEventListener('resize', resizeRenderer);
+      window.cancelAnimationFrame(animationFrame);
+      renderer.dispose();
+      scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => material.dispose());
+      });
+    };
+  }, []);
+
+  function resetPrototype() {
+    setSettings(defaultThreeWobblerSettings);
+  }
+
+  return (
+    <div className="three-prototype">
+      <div className="three-prototype-stage">
+        <canvas
+          ref={canvasRef}
+          aria-label="Three dimensional planted wobbler motion prototype"
+          className="three-wobbler-canvas"
+          data-testid="three-wobbler-canvas"
+        />
+      </div>
+
+      <div className="three-prototype-controls">
+        <div className="workshop-control-group">
+          <Slider
+            label="Intensity"
+            max={1.25}
+            min={0}
+            step={0.01}
+            value={settings.intensity}
+            onChange={(intensity) => setSettings((current) => ({ ...current, intensity }))}
+          />
+          <Slider
+            label="Lean Radius"
+            max={1.4}
+            min={0}
+            step={0.01}
+            value={settings.leanRadius}
+            onChange={(leanRadius) => setSettings((current) => ({ ...current, leanRadius }))}
+          />
+          <Slider
+            label="Speed"
+            max={1.6}
+            min={0.08}
+            step={0.01}
+            value={settings.speed}
+            onChange={(speed) => setSettings((current) => ({ ...current, speed }))}
+          />
+        </div>
+
+        <div className="workshop-control-group">
+          <Slider
+            label="Forward Travel"
+            max={1.4}
+            min={0}
+            step={0.01}
+            value={settings.forwardTravel}
+            onChange={(forwardTravel) =>
+              setSettings((current) => ({ ...current, forwardTravel }))
+            }
+          />
+          <Slider
+            label="Squash Settle"
+            max={1.25}
+            min={0}
+            step={0.01}
+            value={settings.settle}
+            onChange={(settle) => setSettings((current) => ({ ...current, settle }))}
+          />
+          <Slider
+            label="Camera Angle"
+            max={1.2}
+            min={-1.2}
+            step={0.01}
+            value={settings.cameraAngle}
+            onChange={(cameraAngle) => setSettings((current) => ({ ...current, cameraAngle }))}
+          />
+        </div>
+
+        <div className="three-prototype-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setSettings((current) => ({ ...current, paused: !current.paused }))}
+          >
+            {settings.paused ? 'Play' : 'Pause'}
+          </button>
+          <button type="button" className="secondary" onClick={resetPrototype}>
+            Reset
+          </button>
+        </div>
+
+        <dl className="metric-grid workshop-readout">
+          <Metric label="Intensity" value={formatPercent(settings.intensity)} />
+          <Metric label="Lean" value={formatPercent(settings.leanRadius)} />
+          <Metric label="Travel" value={formatPercent(settings.forwardTravel)} />
+          <Metric label="Settle" value={formatPercent(settings.settle)} />
+        </dl>
       </div>
     </div>
   );
