@@ -1,0 +1,29 @@
+[package]
+name = "wobble-brain"
+version = "0.1.0"
+edition = "2024"
+description = "Wobble Party audio brain: desktop audio capture, music analysis, and the stage server"
+license = "MIT"
+
+[[bin]]
+name = "wobble-brain"
+path = "src/main.rs"
+
+[dependencies]
+rustfft = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs"] }
+futures-util = "0.3"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 2
