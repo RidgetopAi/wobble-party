@@ -45,6 +45,7 @@ export class Party {
   private fog: THREE.FogExp2;
   private envDisabled = false;
   private hazeHidden = false;
+  private fogDisabled = false;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -137,6 +138,7 @@ export class Party {
     if (names.has('rim')) this.lights.rim.visible = false;
     if (names.has('djspot')) this.lights.djLight.visible = false;
     if (names.has('env')) this.envDisabled = true;
+    if (names.has('fog')) this.fogDisabled = true;
   }
 
   setPalette(p: Palette, instant = false) {
@@ -163,7 +165,7 @@ export class Party {
     // in a bright room, so haze goes, fog nearly goes, exposure comes down.
     for (const d of this.crowd.dancers) d.glowScale = p.light ? 0 : 1;
     this.fog.color.copy(p.bgDeep);
-    this.fog.density = p.light ? 0.0025 : 0.016;
+    this.fog.density = this.fogDisabled ? 0 : p.light ? 0.0025 : 0.016;
     this.haze.group.visible = !p.light && !this.hazeHidden;
     this.renderer.toneMappingExposure = p.light ? 0.82 : 1.05;
     this.envTimer -= dt;
@@ -172,7 +174,7 @@ export class Party {
       this.envDirty = false;
       this.envTimer = 0.3;
     }
-    this.post.update(t, this.lights.strobe, this.music.dropPulse * 0.8, p.light);
+    this.post.update(t, this.lights.strobe, this.music.dropPulse * 0.8, p.light, p.ink);
   }
 
   render() {

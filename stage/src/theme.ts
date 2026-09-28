@@ -114,7 +114,8 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
   const crowd: THREE.Color[] = [];
   for (let i = 0; i < N_CROWD; i++) {
     if (mono) {
-      const l = [0.1, 0.78, 0.46, 0.22, 0.64, 0.36, 0.86, 0.16, 0.55, 0.3][i];
+      // Wide spread of greys, few near-whites: contrast is all mono has.
+      const l = [0.08, 0.7, 0.4, 0.18, 0.56, 0.3, 0.8, 0.12, 0.48, 0.24][i];
       crowd.push(new THREE.Color().setHSL(0, 0, l));
     } else {
       const src = (vivid.length ? vivid : cands)[i % Math.max(1, vivid.length || cands.length)];
@@ -128,7 +129,7 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
 
   const bgDeep = withHSL(bg, (h, s, l) => [h, s, light ? l * 0.9 : Math.max(0.012, l * 0.45)]);
   const metal = withHSL(bg, (h, s, l) => [h, s * 0.5, light ? l * 0.55 : Math.min(0.2, l + 0.1)]);
-  const floor = withHSL(bg, (h, s, l) => [h, s * 0.8, light ? l * 0.75 : Math.max(0.02, l * 0.7)]);
+  const floor = withHSL(bg, (h, s, l) => [h, s * 0.8, light ? l * (mono ? 0.6 : 0.75) : Math.max(0.02, l * 0.7)]);
   const haze = withHSL(lights[0], (h, s, l) => [h, s * 0.6, light ? 0.8 : l * 0.35]);
   const neon = lights[1 % lights.length].clone();
   const neon2 = lights[0].clone();

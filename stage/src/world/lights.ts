@@ -48,7 +48,8 @@ void main() {
   float edge = pow(abs(dot(normalize(vN), normalize(vV))), 2.2);
   float fall = pow(1.0 - clamp(vAlong, 0.0, 1.0), 1.6);
   float haze = 0.55 + 0.45 * noise(vW * 0.7 + vec3(0.0, uTime * 0.25, uTime * 0.15));
-  float floorFade = smoothstep(0.0, 0.6, vW.y);
+  // Beams thin out before head height so they don't wash over the crowd.
+  float floorFade = smoothstep(0.8, 3.5, vW.y);
   float near = smoothstep(1.0, 4.0, length(cameraPosition - vW));
   float a = uIntensity * edge * fall * haze * floorFade * near;
   gl_FragColor = vec4(uColor * a, 1.0);
@@ -237,17 +238,21 @@ export class LightRig {
     const bp = music.beatPhase;
 
     // Ambient / key / rim from theme.
+    // Mono themes have no colour to separate shapes, so they need contrast:
+    // less ambient fill, a stronger directional key. Otherwise white light
+    // from every side flattens the crowd into milk.
     this.hemi.color.copy(p.lights[0]).lerp(new THREE.Color(1, 1, 1), 0.6);
-    this.hemi.groundColor.copy(p.bgDeep);
-    this.hemi.intensity = p.light ? 0.8 : 0.55 + 0.25 * pres;
-    this.key.intensity = p.light ? 1.2 : 0.75;
+    this.hemi.groundColor.copy(p.bgDeep).multiplyScalar(p.light ? 0.35 : 1);
+    this.hemi.intensity = p.mono ? (p.light ? 0.45 : 0.3 + 0.15 * pres) : p.light ? 0.8 : 0.55 + 0.25 * pres;
+    this.key.intensity = p.mono ? 1.5 : p.light ? 1.2 : 0.75;
     this.rim.color.copy(p.lights[1 % p.lights.length]);
     this.rim.intensity = 0.9 + 0.8 * music.kickPulse * pres + 0.5 * hype;
 
     this.spots.forEach((s, i) => {
       s.color.copy(p.lights[(i + this.colorShift) % 6]);
       const chase = Math.exp(-(((bp * 4 - i) % 4) + 4) % 4 * 1.2);
-      s.intensity = (12 + 26 * hype + 22 * chase * hype) * (0.35 + 0.65 * pres);
+      // White wash spots on the back rows blow them out in mono themes.
+      s.intensity = (12 + 26 * hype + 22 * chase * hype) * (0.35 + 0.65 * pres) * (p.mono ? 0.35 : 1);
     });
     this.djLight.color.copy(p.fg).lerp(p.lights[0], 0.3);
     this.djLight.intensity = 18 + 14 * music.vocal + 10 * music.kickPulse;

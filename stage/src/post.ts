@@ -62,13 +62,14 @@ export class Post {
     this.composer.setSize(w, h);
   }
 
-  update(time: number, flash: number, drop: number, lightTheme: boolean) {
+  update(time: number, flash: number, drop: number, lightTheme: boolean, ink = false) {
     const u = this.finish.uniforms;
     u.uTime.value = time % 100;
     u.uFlash.value = flash;
     u.uCA.value = drop;
     u.uVignette.value = lightTheme ? 0.5 : 0.95;
-    this.bloom.strength = lightTheme ? 0.35 : 0.6;
+    // Ink mode: nothing glows, and bloom on white surfaces only adds haze.
+    this.bloom.strength = ink ? 0 : lightTheme ? 0.35 : 0.6;
     this.bloom.threshold = lightTheme ? 0.95 : 0.85;
   }
 
