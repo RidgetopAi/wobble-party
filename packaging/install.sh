@@ -34,13 +34,26 @@ recorded() {
   awk -v p="$1" 'substr($0, 67) == p { h = substr($0, 1, 64) } END { if (h == "") exit 1; print h }' "$LEDGER"
 }
 
-# Installs from before the ledger existed: recognise our own files by content.
+# Installs from before the ledger existed: accept a file only if its bytes
+# are exactly a version this repository published (SHA-256), never by a
+# marker in its content. The brain binary has no fixed bytes, so an old one
+# without a ledger entry is never touched; the user is asked to move it.
+LEGACY_LAUNCHER=(
+  8f233d629019e4dfa06615677b6838969c3e0b8518a4555f4601a189a75cd75c
+  c34e0ae5ca72a8c754ca798ed3d202e0b09c636e373fb27c36208b804cb6324d
+  d9155def12479f7755bf4ba5dcb948b14b17afb26ba0b3d9721ce1da92c4ce0f
+)
+LEGACY_ICON=(e9097d7a880850ea68a6d0cf16bafe3bfbfd962182e8a225b9434da951d122ab)
+# The desktop entry is the template with @BINDIR@ filled in; undo that first.
+LEGACY_DESKTOP=(d1fe3bf0c7e13aa9f676b7741e8a8dc3a89a695740bfed282fa05781d39583c8)
 legacy_ours() {
+  local h
   case "$1" in
-    "$BINDIR/wobble-party") grep -q '^# Wobble Party launcher\.' -- "$1" ;;
-    "$BINDIR/wobble-brain") grep -qa 'wobble-brain: listening on' -- "$1" ;;
-    "$APPDIR/wobble-party.desktop") grep -qx 'StartupWMClass=chrome-wobble.localhost__-Default' -- "$1" ;;
-    "$ICONDIR/wobble-party.svg") cmp -s -- "$1" "$REPO_ROOT/packaging/wobble-party.svg" ;;
+    "$BINDIR/wobble-party") h="$(hash_of "$1")"; [[ " ${LEGACY_LAUNCHER[*]} " == *" $h "* ]] ;;
+    "$ICONDIR/wobble-party.svg") h="$(hash_of "$1")"; [[ " ${LEGACY_ICON[*]} " == *" $h "* ]] ;;
+    "$APPDIR/wobble-party.desktop")
+      h="$(sed "s|$BINDIR|@BINDIR@|g" -- "$1" | sha256sum | cut -d' ' -f1)"
+      [[ " ${LEGACY_DESKTOP[*]} " == *" $h "* ]] ;;
     *) return 1 ;;
   esac
 }

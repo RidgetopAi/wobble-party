@@ -113,7 +113,7 @@ become a black-and-white club full of candy-coloured wobblers, and light themes 
 
 ```bash
 cd stage && npm ci && npm run dev            # stage on :5188 (proxies the brain)
-cargo run --release --manifest-path brain/Cargo.toml -- serve   # brain on :7477
+cargo run --release --manifest-path brain/Cargo.toml -- serve --dev-origin http://127.0.0.1:5188   # brain on :7477
 # http://127.0.0.1:5188/?demo  (no brain needed)   ?lab  (character lineup)
 ```
 

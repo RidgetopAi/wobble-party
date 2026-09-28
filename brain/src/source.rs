@@ -74,10 +74,16 @@ impl Source {
         // signal follows the spawning thread; the analysis thread lives as
         // long as the process.)
         // SAFETY: prctl is async-signal-safe; nothing else runs between fork and exec.
+        // If the brain died between fork and prctl, the signal was missed:
+        // getppid no longer matches, so bail instead of running orphaned.
+        let parent = std::process::id() as libc::pid_t;
         unsafe {
-            cmd.pre_exec(|| {
+            cmd.pre_exec(move || {
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
                     return Err(std::io::Error::last_os_error());
+                }
+                if libc::getppid() != parent {
+                    libc::_exit(1);
                 }
                 Ok(())
             });

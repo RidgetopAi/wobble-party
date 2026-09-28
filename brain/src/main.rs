@@ -16,11 +16,13 @@ wobble-brain — Wobble Party audio brain
 
 USAGE:
   wobble-brain serve [--port 7477] [--static DIR] [--file PATH [--loop]]
-                     [--exit-when-idle SECS]
+                     [--exit-when-idle SECS] [--dev-origin ORIGIN]
       Listen to the desktop mix (default sink monitor), or a file played in
       real time, and stream analysis frames to the stage at ws://127.0.0.1:PORT/ws.
       The stage is built in; --static serves it from disk instead (development).
       --exit-when-idle stops the brain once no stage has been connected for SECS.
+      Only the brain's own page may call it; --dev-origin also allows one more
+      exact origin (development: http://127.0.0.1:5188 for the Vite server).
 
   wobble-brain analyze PATH [--out FILE.jsonl] [--features]
       Analyse a file offline (as fast as possible) and write one JSON frame
@@ -53,6 +55,7 @@ fn main() -> Result<()> {
                 Some(p) => source::Source::File { path: p.into(), realtime: true },
                 None => source::Source::Monitor,
             };
+            guard::configure(port, value("--dev-origin"));
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(server::run(server::Options { port, source, static_dir, loop_file: flag("--loop"), exit_when_idle }))
         }

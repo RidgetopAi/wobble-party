@@ -244,7 +244,7 @@ async fn serve_client(mut socket: WebSocket, state: &AppState) {
 async fn background() -> Response {
     let path = theme::background_path();
     let read = tokio::task::spawn_blocking(move || limits::read_file(&path, 64 * MIB, false, false)).await;
-    match read.ok().flatten().and_then(|b| limits::image_mime(&b).map(|m| (b, m))) {
+    match read.ok().flatten().and_then(|b| limits::image_ok(&b, 8192, 40_000_000).map(|m| (b, m))) {
         Some((bytes, mime)) => ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-store")], bytes).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }

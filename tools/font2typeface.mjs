@@ -1,12 +1,16 @@
 // Convert a TTF into three.js typeface JSON (same conversion as three's
 // TTFLoader, which would otherwise fetch opentype.js from a CDN at runtime).
-//   node tools/font2typeface.mjs stage/public/fonts/TitanOne-Regular.ttf "WOBLEPARTY wobleparty" out.json
+//   node tools/font2typeface.mjs stage/public/fonts/TitanOne-Regular.ttf "WOBLEPARTY wobleparty" out.json "Wobble Sign"
+//
+// The output is a converted subset, i.e. a Modified Version under the OFL, so
+// it must not carry the original's Reserved Font Name: pass a new family name.
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 const require = createRequire(new URL('../stage/package.json', import.meta.url));
 const opentype = require('opentype.js');
 
-const [src, charset, dst] = process.argv.slice(2);
+const [src, charset, dst, family] = process.argv.slice(2);
+if (!family) throw new Error('pass a family name for the subset (not the Reserved Font Name)');
 const font = opentype.parse(fs.readFileSync(src).buffer);
 const scale = 100000 / ((font.unitsPerEm || 2048) * 72);
 const round = Math.round;
@@ -25,7 +29,7 @@ for (const ch of new Set(charset)) {
 }
 fs.writeFileSync(dst, JSON.stringify({
   glyphs,
-  familyName: font.getEnglishName('fullName'),
+  familyName: family,
   ascender: round(font.ascender * scale),
   descender: round(font.descender * scale),
   underlinePosition: font.tables.post.underlinePosition,

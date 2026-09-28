@@ -150,7 +150,7 @@ pub async fn art_bytes(art: &SharedArt) -> Option<(Vec<u8>, &'static str)> {
     } else {
         return None;
     };
-    let mime = limits::image_mime(&bytes)?;
+    let mime = limits::image_ok(&bytes, 4096, 16 * 1024 * 1024)?;
     let mut a = art.lock().unwrap();
     if a.url.as_deref() == Some(url.as_str()) {
         a.bytes = Some((bytes.clone(), mime));
@@ -190,7 +190,10 @@ async fn fetch_public(url: &str) -> Option<Vec<u8>> {
         IpAddr::V6(v) => format!("[{v}]"),
     };
     let mut cmd = Command::new(CURL);
-    cmd.args(["-q", "-sf", "--proto", "=http,https", "--max-redirs", "0", "-m", "6"])
+    // A clean environment: no http_proxy/ALL_PROXY can route around the
+    // address check, and --noproxy makes that explicit.
+    cmd.env_clear().env("PATH", "/usr/bin").env("LANG", "C");
+    cmd.args(["-q", "-sf", "--noproxy", "*", "--proto", "=http,https", "--max-redirs", "0", "-m", "6"])
         .args(["--max-filesize", &ART_CAP.to_string()])
         .args(["--resolve", &format!("{host}:{port}:{ip}")])
         .arg("--")
@@ -212,20 +215,22 @@ fn is_public(ip: IpAddr) -> bool {
                 || a == 0
                 || (a == 100 && (64..128).contains(&b)) // CGNAT / tailnets
                 || (a == 198 && (b == 18 || b == 19)) // benchmarking
+                || (a == 192 && b == 0 && v.octets()[2] == 0) // IETF protocol assignments
+                || (a == 192 && b == 88 && v.octets()[2] == 99) // 6to4 relay anycast
                 || a >= 240)
         }
         IpAddr::V6(v) => {
             if let Some(v4) = v.to_ipv4_mapped() {
                 return is_public(IpAddr::V4(v4));
             }
+            // Global unicast (2000::/3) only, minus the ranges that tunnel to
+            // arbitrary IPv4 (6to4, Teredo) and documentation.
             let s = v.segments();
-            !(v.is_loopback()
-                || v.is_unspecified()
-                || v.is_multicast()
-                || (s[0] & 0xfe00) == 0xfc00 // unique local
-                || (s[0] & 0xffc0) == 0xfe80 // link local
-                || (s[0] == 0x2001 && s[1] == 0x0db8) // documentation
-                || (s[0] == 0x64 && s[1] == 0xff9b)) // NAT64 can reach IPv4 private space
+            (s[0] & 0xe000) == 0x2000
+                && s[0] != 0x2002 // 6to4
+                && !(s[0] == 0x2001 && s[1] == 0x0000) // Teredo
+                && !(s[0] == 0x2001 && s[1] == 0x0db8) // documentation
+                && !(s[0] == 0x2001 && s[1] < 0x0200) // other IETF special-purpose
         }
     }
 }
@@ -261,7 +266,7 @@ mod tests {
         for ip in ["151.101.1.1", "2606:4700::1"] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
-        for ip in ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "169.254.1.1", "100.122.107.49", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "64:ff9b::a00:1"] {
+        for ip in ["127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "169.254.1.1", "100.122.107.49", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "64:ff9b::a00:1", "2002:a00:1::1", "2001:0:4136:e378::1", "::a00:1", "fec0::1", "192.0.0.8", "192.88.99.1"] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }
     }

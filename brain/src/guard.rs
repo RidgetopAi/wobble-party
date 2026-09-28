@@ -3,8 +3,10 @@
 //!
 //!  - Host: one of our loopback names. A web page that DNS-rebinds its own
 //!    domain to 127.0.0.1 still sends its own Host, so it is refused.
-//!  - Origin (when a browser sends one): the same loopback names, so no other
-//!    site can open the WebSocket or read cover art cross-origin.
+//!  - Origin (when a browser sends one): exactly our own page,
+//!    http://{wobble.localhost,127.0.0.1,localhost}:PORT, so no other site
+//!    (not even another local web UI on another port) can open the WebSocket
+//!    or read cover art. `serve --dev-origin` adds the Vite dev server.
 //!  - Peer: the connecting socket must belong to the same user as the brain
 //!    (looked up in /proc/net/tcp), so other local users cannot read what is
 //!    playing. No token is needed, so nothing secret ends up in argv.
@@ -16,8 +18,21 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
+use std::sync::OnceLock;
 
 const NAMES: [&str; 3] = ["127.0.0.1", "localhost", "wobble.localhost"];
+
+struct Config {
+    port: u16,
+    dev_origin: Option<String>,
+}
+
+static CONFIG: OnceLock<Config> = OnceLock::new();
+
+/// Set once at startup, before serving.
+pub fn configure(port: u16, dev_origin: Option<String>) {
+    let _ = CONFIG.set(Config { port, dev_origin });
+}
 
 fn host_name_ok(host: &str) -> bool {
     // "name" or "name:port"; IPv6 literals are never ours.
@@ -25,8 +40,8 @@ fn host_name_ok(host: &str) -> bool {
     NAMES.iter().any(|n| n.eq_ignore_ascii_case(name))
 }
 
-fn origin_ok(origin: &str) -> bool {
-    origin.strip_prefix("http://").is_some_and(|rest| !rest.contains('/') && host_name_ok(rest))
+fn origin_ok(origin: &str, port: u16, dev: Option<&str>) -> bool {
+    NAMES.iter().any(|n| origin.eq_ignore_ascii_case(&format!("http://{n}:{port}"))) || dev.is_some_and(|d| origin == d)
 }
 
 pub async fn check(ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request, next: Next) -> Response {
@@ -36,7 +51,10 @@ pub async fn check(ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request, nex
         return (StatusCode::FORBIDDEN, "wobble-brain: unexpected Host").into_response();
     }
     if let Some(origin) = headers.get(header::ORIGIN) {
-        if !origin.to_str().is_ok_and(origin_ok) {
+        let Some(cfg) = CONFIG.get() else {
+            return StatusCode::FORBIDDEN.into_response();
+        };
+        if !origin.to_str().is_ok_and(|o| origin_ok(o, cfg.port, cfg.dev_origin.as_deref())) {
             return (StatusCode::FORBIDDEN, "wobble-brain: unexpected Origin").into_response();
         }
     }
@@ -85,10 +103,11 @@ mod tests {
 
     #[test]
     fn origins() {
-        assert!(origin_ok("http://wobble.localhost:7477"));
-        assert!(origin_ok("http://127.0.0.1:5188"));
-        for bad in ["https://evil.com", "http://evil.com:7477", "null", "http://localhost:7477/x", "file://"] {
-            assert!(!origin_ok(bad), "{bad}");
+        assert!(origin_ok("http://wobble.localhost:7477", 7477, None));
+        assert!(origin_ok("http://127.0.0.1:7477", 7477, None));
+        assert!(origin_ok("http://127.0.0.1:5188", 7477, Some("http://127.0.0.1:5188")));
+        for bad in ["http://127.0.0.1:5188", "http://localhost:3000", "https://evil.com", "http://evil.com:7477", "null", "http://localhost:7477/x", "file://", "http://wobble.localhost:74770"] {
+            assert!(!origin_ok(bad, 7477, None), "{bad}");
         }
     }
 

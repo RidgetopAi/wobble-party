@@ -32,7 +32,7 @@ BarWidget {
   Process {
     id: status
     running: false
-    command: ["sh", "-c", "l=" + root.launcher + "; [ -x \"$l\" ] && \"$l\" status || echo missing"]
+    command: ["sh", "-c", "l=" + root.launcher + "; { [ -x \"$l\" ] && \"$l\" status || echo missing; } | head -c 64"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -72,6 +72,7 @@ BarWidget {
     command: ["sh", "-c",
       "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party\"; mkdir -p -m 700 \"$d\" || exit 1;"
       + " rm -f \"$d\"/install.*.log; log=$(mktemp \"$d/install.XXXXXX.log\") || exit 1;"
+      + " if ! command -v cargo >/dev/null 2>&1; then notify-send -u critical 'Wobble Party' 'Needs Rust to build: Omarchy menu → Install → Development → Rust, then click again'; exit 1; fi;"
       + " notify-send 'Wobble Party' 'Building the wobble brain… (a minute or two)';"
       + " if ./packaging/install.sh >\"$log\" 2>&1;"
       + " then notify-send 'Wobble Party' 'Installed! Click the wobbler to start the party.';"

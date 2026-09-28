@@ -312,7 +312,7 @@ export class Venue {
   }
 
   private async loadSign() {
-    const font = await new FontLoader().loadAsync(new URL('fonts/titan-one.typeface.json', document.baseURI).href);
+    const font = await new FontLoader().loadAsync(new URL('fonts/wobble-sign.typeface.json', document.baseURI).href);
     const make = (text: string, size: number, color: THREE.Color, y: number) => {
       const depth = 0.16;
       const g = new TextGeometry(text, { font, size, depth, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3 });
