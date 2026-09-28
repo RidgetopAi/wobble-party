@@ -2,53 +2,124 @@
 # Install Wobble Party for the current user. No root, no system directories.
 #
 #   ./packaging/install.sh              build and install
-#   ./packaging/install.sh --uninstall  remove everything this installed
+#   ./packaging/install.sh --uninstall  remove what this installed
 #
 # Idempotent: re-running upgrades in place. Needs cargo (Rust); the stage is
 # prebuilt and embedded into the binary, so node is not needed.
+#
+# Ownership: every file written is recorded with its SHA-256 in
+# $STATE/installed. A path is only replaced or removed if it is absent or
+# still has the bytes we wrote, never through a symlink, so a file of the
+# same name that belongs to something else is left alone.
 
 set -euo pipefail
+umask 022
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BINDIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 APPDIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICONDIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party"
+LEDGER="$STATE/installed"
 PLUGIN_ID="ridgetopai.wobble-party"
 PLUGIN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$PLUGIN_ID"
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 say() { printf '  %s\n' "$*"; }
-# Remove a file and report it only if it was there (uninstall must not lie).
-drop() {
-  [[ -e $1 || -L $1 ]] || return 0
-  rm -f "$1" && say "removed $1"
+hash_of() { sha256sum -- "$1" | cut -d' ' -f1; }
+
+# The hash we recorded for a path, if any.
+recorded() {
+  [[ -f $LEDGER && ! -L $LEDGER ]] || return 1
+  awk -v p="$1" 'substr($0, 67) == p { h = substr($0, 1, 64) } END { if (h == "") exit 1; print h }' "$LEDGER"
 }
+
+# Installs from before the ledger existed: recognise our own files by content.
+legacy_ours() {
+  case "$1" in
+    "$BINDIR/wobble-party") grep -q '^# Wobble Party launcher\.' -- "$1" ;;
+    "$BINDIR/wobble-brain") grep -qa 'wobble-brain: listening on' -- "$1" ;;
+    "$APPDIR/wobble-party.desktop") grep -qx 'StartupWMClass=chrome-wobble.localhost__-Default' -- "$1" ;;
+    "$ICONDIR/wobble-party.svg") cmp -s -- "$1" "$REPO_ROOT/packaging/wobble-party.svg" ;;
+    *) return 1 ;;
+  esac
+}
+
+# May we replace or remove this path?
+ours_or_absent() {
+  local p=$1 want
+  [[ -L $p ]] && return 1
+  [[ -e $p ]] || return 0
+  [[ -f $p ]] || return 1
+  if want="$(recorded "$p")"; then
+    [[ $(hash_of "$p") == "$want" ]]
+  else
+    legacy_ours "$p"
+  fi
+}
+
+ledger_set() {
+  local p=$1 h=$2 tmp
+  tmp="$(mktemp "$STATE/.installed.XXXXXX")"
+  { [[ -f $LEDGER && ! -L $LEDGER ]] && awk -v p="$p" 'substr($0, 67) != p' "$LEDGER"; [[ -n $h ]] && printf '%s  %s\n' "$h" "$p"; } >"$tmp" || true
+  mv -fT -- "$tmp" "$LEDGER"
+}
+
+# place SRC DEST MODE: write via a temp file in DEST's directory, then an
+# atomic rename (which replaces a path, never writes through a link).
+place() {
+  local src=$1 dest=$2 mode=$3 tmp
+  if ! ours_or_absent "$dest"; then
+    say "skipped $dest (exists and is not ours; move it aside and re-run)"
+    SKIPPED=1
+    return 0
+  fi
+  mkdir -p -- "$(dirname -- "$dest")"
+  tmp="$(mktemp "$(dirname -- "$dest")/.wobble-party.XXXXXX")"
+  install -m "$mode" -- "$src" "$tmp"
+  mv -fT -- "$tmp" "$dest"
+  ledger_set "$dest" "$(hash_of "$dest")"
+  say "installed $dest"
+}
+
+# unplace DEST: remove it only if it is still exactly what we installed.
+unplace() {
+  local p=$1
+  if [[ ! -e $p && ! -L $p ]]; then
+    ledger_set "$p" ""
+    return 0
+  fi
+  if ours_or_absent "$p"; then
+    rm -f -- "$p"
+    say "removed $p"
+    ledger_set "$p" ""
+  else
+    say "left $p alone (changed since install, or not ours)"
+  fi
+}
+
+mkdir -p -m 700 -- "$STATE"
+[[ -d $STATE && ! -L $STATE ]] || die "$STATE is not a directory"
+SKIPPED=0
+FILES=("$BINDIR/wobble-party" "$BINDIR/wobble-brain" "$APPDIR/wobble-party.desktop" "$ICONDIR/wobble-party.svg")
 
 if [[ ${1:-} == --uninstall ]]; then
   echo "Removing Wobble Party..."
-  "$BINDIR/wobble-party" stop 2>/dev/null || true
-  drop "$BINDIR/wobble-party"
-  drop "$BINDIR/wobble-brain"
-  drop "$APPDIR/wobble-party.desktop"
-  drop "$ICONDIR/wobble-party.svg"
-  # The bar plugin: namespaced to our id, so removing it is safe. The parent
-  # plugins/ directory is Omarchy's and is only removed if empty.
-  if [[ -d $PLUGIN_DIR ]]; then
-    rm -rf "$PLUGIN_DIR"
-    say "removed $PLUGIN_DIR"
-    rmdir "$(dirname "$PLUGIN_DIR")" 2>/dev/null || true
-  fi
+  [[ -x $BINDIR/wobble-party ]] && ours_or_absent "$BINDIR/wobble-party" && "$BINDIR/wobble-party" stop 2>/dev/null || true
+  for f in "${FILES[@]}"; do unplace "$f"; done
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$APPDIR" || true
   echo
   echo "Done. Left alone on purpose:"
-  echo "  - $STATE (logs and the party's browser profile)"
+  echo "  - $STATE (logs and the party's browser profile; delete it to remove those too)"
   echo "  - Hyprland rules, if you copied packaging/hyprland/wobble-party.lua"
+  if [[ -d $PLUGIN_DIR ]]; then
+    echo "  - the bar plugin itself: remove it with  omarchy plugin remove $PLUGIN_ID"
+  fi
   exit 0
 fi
 
 command -v cargo >/dev/null 2>&1 || die "cargo not found. Install Rust (omarchy: Install > Development > Rust, or https://rustup.rs)"
-command -v pw-record >/dev/null 2>&1 || die "pw-record not found (PipeWire tools). Wobble Party listens through PipeWire."
+[[ -x /usr/bin/pw-record ]] || die "/usr/bin/pw-record not found (PipeWire tools). Wobble Party listens through PipeWire."
 [[ -f $REPO_ROOT/stage/dist/index.html ]] || die "stage/dist is missing — run 'npm ci && npm run build' in stage/ first"
 
 # Never build inside the plugin directory: Omarchy's shell watches it with a
@@ -61,21 +132,25 @@ fi
 TARGET="${CARGO_TARGET_DIR:-$REPO_ROOT/brain/target}"
 
 echo "Building the wobble brain (release)..."
-cargo build --release --manifest-path "$REPO_ROOT/brain/Cargo.toml"
+# --locked: build exactly the dependency versions in Cargo.lock.
+cargo build --release --locked --manifest-path "$REPO_ROOT/brain/Cargo.toml"
 [[ -x $TARGET/release/wobble-brain ]] || die "build finished but $TARGET/release/wobble-brain is missing"
 
 echo "Installing..."
-mkdir -p "$BINDIR" "$APPDIR" "$ICONDIR" "$STATE"
-install -m 755 "$TARGET/release/wobble-brain" "$BINDIR/wobble-brain"
-say "installed $BINDIR/wobble-brain"
-install -m 755 "$REPO_ROOT/bin/wobble-party" "$BINDIR/wobble-party"
-say "installed $BINDIR/wobble-party"
-install -m 644 "$REPO_ROOT/packaging/wobble-party.svg" "$ICONDIR/wobble-party.svg"
-sed "s|@BINDIR@|$BINDIR|g" "$REPO_ROOT/packaging/wobble-party.desktop" >"$APPDIR/wobble-party.desktop"
-say "installed $APPDIR/wobble-party.desktop"
+desktop="$(mktemp "$STATE/.desktop.XXXXXX")"
+trap 'rm -f -- "$desktop"' EXIT
+sed "s|@BINDIR@|$BINDIR|g" "$REPO_ROOT/packaging/wobble-party.desktop" >"$desktop"
+place "$TARGET/release/wobble-brain" "$BINDIR/wobble-brain" 755
+place "$REPO_ROOT/bin/wobble-party" "$BINDIR/wobble-party" 755
+place "$REPO_ROOT/packaging/wobble-party.svg" "$ICONDIR/wobble-party.svg" 644
+place "$desktop" "$APPDIR/wobble-party.desktop" 644
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$APPDIR" || true
 
 echo
+if [[ $SKIPPED == 1 ]]; then
+  echo "Some files were skipped (see above); Wobble Party may not start until they are."
+  exit 1
+fi
 echo "Wobble Party is installed. Start it with:  wobble-party"
 echo "Optional keybinding (add to ~/.config/hypr/bindings.lua):"
 echo "  o.bind(\"SUPER + ALT + W\", \"Wobble Party\", \"wobble-party toggle\")"

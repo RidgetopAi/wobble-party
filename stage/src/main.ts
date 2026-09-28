@@ -146,7 +146,7 @@ async function startParty() {
       themeIdx = (themeIdx + 1) % themeList.length;
       preview = themeList[themeIdx];
       await loadNamed(preview);
-      hud.setStatus(`theme preview: <b>${preview}</b> (T to return)`);
+      hud.setStatus('theme preview: ', { b: preview }, ' (T to return)');
     } else if (e.key === 'T') {
       preview = null;
       if (currentTheme) applyTheme(currentTheme);
@@ -244,9 +244,9 @@ async function startParty() {
     }
     if (feed instanceof LiveFeed) {
       hud.setStatus(
-        feed.connected
-          ? `♪ Wobble Party is listening — play something in <b>cliamp</b>, Spotify or anything else`
-          : `waiting for the wobble brain…`,
+        ...(feed.connected
+          ? ['♪ Wobble Party is listening — play something in ', { b: 'cliamp' }, ', Spotify or anything else']
+          : ['waiting for the wobble brain…']),
       );
     }
     hud.update(dt, party.music, `${fps.toFixed(0)} fps · ${party.cam.current.kind} · ${party.theme.p.name}`);

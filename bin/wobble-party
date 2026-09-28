@@ -19,10 +19,11 @@ URL="http://wobble.localhost:$PORT/"
 CLASS_RE='^chrome-wobble\.localhost__'
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party"
 HERE="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
-BRAIN="$(command -v wobble-brain || true)"
-[[ -n $BRAIN ]] || BRAIN="$HERE/wobble-brain"
+# The brain installed next to this launcher, never whatever is first on PATH.
+BRAIN="$HERE/wobble-brain"
+LOG="$STATE/brain.log"
 
-mkdir -p "$STATE"
+mkdir -p -m 700 -- "$STATE"
 
 window() {
   hyprctl clients -j 2>/dev/null | jq -r --arg re "$CLASS_RE" 'first(.[] | select(.class | test($re)) | .address) // empty'
@@ -40,8 +41,24 @@ close_window() {
     hyprctl dispatch closewindow "address:$1" >/dev/null
 }
 
+# PID of whatever of ours is listening on PORT (ss only shows our processes).
+listener_pid() {
+  ss -Hltnp "sport = :$PORT" 2>/dev/null | grep -o 'pid=[0-9]*' | head -n1 | cut -d= -f2
+}
+
+port_taken() {
+  [[ -n $(ss -Hltn "sport = :$PORT" 2>/dev/null) ]]
+}
+
+# Up only if the listener is our brain binary, not just anything on the port.
+# (Just after an upgrade the old brain's exe reads "<path> (deleted)".)
 brain_up() {
-  curl -fs -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1
+  local pid exe
+  pid="$(listener_pid)"
+  [[ -n $pid ]] || return 1
+  exe="$(readlink -- "/proc/$pid/exe" 2>/dev/null)"
+  [[ ${exe% (deleted)} == "$(readlink -f -- "$BRAIN")" ]] &&
+    curl -fs -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1
 }
 
 start_brain() {
@@ -50,13 +67,20 @@ start_brain() {
     notify-send -u critical "Wobble Party" "wobble-brain is not installed — run packaging/install.sh"
     exit 1
   }
+  if port_taken; then
+    notify-send -u critical "Wobble Party" "Port $PORT is in use by another program (set WOBBLE_PARTY_PORT to use another)"
+    exit 1
+  fi
+  # Our own log only: never append through a symlink; keep it small.
+  [[ -L $LOG || (-e $LOG && ! -f $LOG) ]] && rm -f -- "$LOG"
+  [[ -f $LOG && $(stat -c %s -- "$LOG") -gt 1048576 ]] && mv -f -- "$LOG" "$LOG.old"
   # Exits by itself a few seconds after the last window closes.
-  setsid "$BRAIN" serve --port "$PORT" --exit-when-idle 6 >>"$STATE/brain.log" 2>&1 </dev/null &
+  setsid "$BRAIN" serve --port "$PORT" --exit-when-idle 6 >>"$LOG" 2>&1 </dev/null &
   for _ in $(seq 60); do
     brain_up && return 0
     sleep 0.1
   done
-  notify-send -u critical "Wobble Party" "The wobble brain did not start — see $STATE/brain.log"
+  notify-send -u critical "Wobble Party" "The wobble brain did not start — see $LOG"
   exit 1
 }
 

@@ -34,7 +34,7 @@ export class Hud {
     this.status.className = 'wp-status';
     this.help = document.createElement('div');
     this.help.className = 'wp-help';
-    this.help.innerHTML = [
+    for (const [k, v] of [
       ['space', 'next camera shot'],
       ['1–9', 'hold a shot · 0 auto'],
       ['t', 'preview next theme · T current'],
@@ -42,9 +42,13 @@ export class Hud {
       ['f', 'fullscreen'],
       ['h', 'this help'],
       ['q', 'quit'],
-    ]
-      .map(([k, v]) => `<div><kbd>${k}</kbd>${v}</div>`)
-      .join('');
+    ]) {
+      const row = document.createElement('div');
+      const kbd = document.createElement('kbd');
+      kbd.textContent = k;
+      row.append(kbd, v);
+      this.help.append(row);
+    }
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'wp-debug';
     this.canvas.width = 460;
@@ -62,11 +66,20 @@ export class Hud {
     this.canvas.style.display = this.debug ? 'block' : 'none';
   }
 
-  setStatus(text: string) {
-    if (text !== this.statusText) {
-      this.statusText = text;
-      this.status.innerHTML = text;
-    }
+  /** Status line; `{ b: text }` parts are bold. Always text, never markup
+   *  (theme names come from folder names). */
+  setStatus(...parts: (string | { b: string })[]) {
+    const key = JSON.stringify(parts);
+    if (key === this.statusText) return;
+    this.statusText = key;
+    this.status.replaceChildren(
+      ...parts.map((p) => {
+        if (typeof p === 'string') return p;
+        const b = document.createElement('b');
+        b.textContent = p.b;
+        return b;
+      }),
+    );
   }
 
   update(dt: number, m: Music, extra: string) {

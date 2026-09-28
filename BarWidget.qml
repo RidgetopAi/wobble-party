@@ -18,6 +18,10 @@ BarWidget {
   readonly property string pluginDir:
     String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "").replace(/\/$/, "")
 
+  // The launcher the installer puts in ~/.local/bin (or $XDG_BIN_HOME); by
+  // path, never whatever `wobble-party` is first on PATH.
+  readonly property string launcher: '"${XDG_BIN_HOME:-$HOME/.local/bin}/wobble-party"'
+
   // "running" | "stopped" | "missing" | "installing"
   property string state: "stopped"
   readonly property bool running: state === "running"
@@ -28,7 +32,7 @@ BarWidget {
   Process {
     id: status
     running: false
-    command: ["sh", "-c", "command -v wobble-party >/dev/null 2>&1 && wobble-party status || echo missing"]
+    command: ["sh", "-c", "l=" + root.launcher + "; [ -x \"$l\" ] && \"$l\" status || echo missing"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -55,7 +59,7 @@ BarWidget {
   Process {
     id: toggle
     running: false
-    command: ["wobble-party", "toggle"]
+    command: ["sh", "-c", "exec " + root.launcher + " toggle"]
     onExited: root.poll()
   }
 
@@ -63,11 +67,15 @@ BarWidget {
     id: install
     running: false
     workingDirectory: root.pluginDir
+    // The log goes in our own state directory, in a fresh file mktemp creates
+    // (never an existing path, never through a symlink).
     command: ["sh", "-c",
-      "notify-send 'Wobble Party' 'Building the wobble brain… (a minute or two)';"
-      + " if ./packaging/install.sh >\"${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party-install.log\" 2>&1;"
+      "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party\"; mkdir -p -m 700 \"$d\" || exit 1;"
+      + " rm -f \"$d\"/install.*.log; log=$(mktemp \"$d/install.XXXXXX.log\") || exit 1;"
+      + " notify-send 'Wobble Party' 'Building the wobble brain… (a minute or two)';"
+      + " if ./packaging/install.sh >\"$log\" 2>&1;"
       + " then notify-send 'Wobble Party' 'Installed! Click the wobbler to start the party.';"
-      + " else notify-send -u critical 'Wobble Party' 'Install failed — see ~/.local/state/wobble-party-install.log'; exit 1; fi"]
+      + " else notify-send -u critical 'Wobble Party' \"Install failed — see $log\"; exit 1; fi"]
     onExited: function (code) {
       root.state = "stopped"
       root.poll()
