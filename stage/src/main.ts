@@ -92,6 +92,8 @@ async function startParty() {
 
   // Debug: ?swirl makes everyone do the signature move every 4 bars.
   party.show.forceSwirl = params.has('swirl');
+  // Debug: ?logos brings the wall logos up every few seconds.
+  party.logos.demo = params.has('logos');
 
   // Debug: ?hide=lasers,haze,beams,spots,floor,wall,crowd isolates layers.
   const hide = new Set((params.get('hide') ?? '').split(',').filter(Boolean));

@@ -150,7 +150,7 @@ export class Venue {
   }
 
   private buildWall() {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(13, 5.6), ledMaterial(this.u, [104, 45], 0.9, 2));
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(13, 5.6), ledMaterial(this.u, [104, 45], 0.9, 2, true));
     wall.position.set(0, STAGE_Y + 3.2, WALL_Z);
     this.group.add(wall);
     const frame = new THREE.Mesh(new THREE.BoxGeometry(13.4, 6.0, 0.3), this.metal);

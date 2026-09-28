@@ -38,6 +38,10 @@ export interface ShowUniforms {
   /** Cover art shown as LED pixels. */
   uArt: { value: THREE.Texture | null };
   uArtMix: { value: number };
+  /** Logo (alpha mask) shown now and then on the big wall; aspect w/h. */
+  uLogo: { value: THREE.Texture | null };
+  uLogoMix: { value: number };
+  uLogoAspect: { value: number };
 }
 
 export function createShowUniforms(p: Palette): ShowUniforms {
@@ -68,6 +72,9 @@ export function createShowUniforms(p: Palette): ShowUniforms {
     uMarqueeScroll: { value: 0 },
     uArt: { value: null },
     uArtMix: { value: 0 },
+    uLogo: { value: null },
+    uLogoMix: { value: 0 },
+    uLogoAspect: { value: 4 },
   };
 }
 
@@ -137,6 +144,9 @@ uniform float uMarqueeAspect;
 uniform float uMarqueeScroll;
 uniform sampler2D uArt;
 uniform float uArtMix;
+uniform sampler2D uLogo;
+uniform float uLogoMix;
+uniform float uLogoAspect;
 
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);

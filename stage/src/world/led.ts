@@ -14,6 +14,7 @@ ${SHOW_GLSL}
 uniform vec2 uRes;       // LED pixel grid
 uniform float uGain;
 uniform float uSeed;
+uniform float uLogoHost; // 1 on the surface that shows logos
 varying vec2 vUv;
 
 vec3 programme(float mode, vec2 uv) {
@@ -79,6 +80,24 @@ void main() {
     vec3 art = texture2D(uArt, au).rgb;
     col = mix(col, art * (0.9 + 0.3 * uKick), uArtMix * inside);
   }
+  // Logo, fitted and sat a little high (clear of the DJ's head), lit in the
+  // palette. Four taps per LED so thin strokes don't flicker between pixels.
+  if (uLogoMix > 0.001 && uLogoHost > 0.5) {
+    float wa = uRes.x / uRes.y;
+    float lw = min(0.88, 0.76 * uLogoAspect / wa);
+    float lh = lw * wa / uLogoAspect;
+    vec2 lu = (uv - vec2(0.5, 0.56)) / vec2(lw, lh) + 0.5;
+    vec2 d = 0.25 / (uRes * vec2(lw, lh));
+    float a = 0.0;
+    for (int i = 0; i < 4; i++) {
+      vec2 q = lu + d * vec2(i == 0 || i == 2 ? -1.0 : 1.0, i < 2 ? -1.0 : 1.0);
+      float inside = step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
+      a += texture2D(uLogo, q).a * inside * 0.25;
+    }
+    a = smoothstep(0.2, 0.7, a);
+    vec3 lc = (lightAt(uv.x * 0.6 + uv.y * 0.25 - uTime * 0.06) * 1.3 + 0.3) * (0.85 + 0.4 * uKick);
+    col = mix(col * (1.0 - 0.8 * uLogoMix), lc, a * uLogoMix);
+  }
   // Now-playing marquee across the middle band.
   if (uMarqueeMix > 0.001) {
     float band = 0.42;
@@ -113,9 +132,15 @@ void main() {
 }
 `;
 
-export function ledMaterial(u: ShowUniforms, res: [number, number], gain = 2.2, seed = 0): THREE.ShaderMaterial {
+export function ledMaterial(u: ShowUniforms, res: [number, number], gain = 2.2, seed = 0, logos = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { ...u, uRes: { value: new THREE.Vector2(...res) }, uGain: { value: gain }, uSeed: { value: seed } },
+    uniforms: {
+      ...u,
+      uRes: { value: new THREE.Vector2(...res) },
+      uGain: { value: gain },
+      uSeed: { value: seed },
+      uLogoHost: { value: logos ? 1 : 0 },
+    },
     vertexShader: LED_VERT,
     fragmentShader: LED_FRAG,
     toneMapped: true,
