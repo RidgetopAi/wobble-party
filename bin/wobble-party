@@ -24,6 +24,7 @@ BRAIN="$HERE/wobble-brain"
 LOG="$STATE/brain.log"
 
 mkdir -p -m 700 -- "$STATE"
+[[ -L $STATE ]] || chmod 700 -- "$STATE"
 
 window() {
   hyprctl clients -j 2>/dev/null | jq -r --arg re "$CLASS_RE" 'first(.[] | select(.class | test($re)) | .address) // empty'

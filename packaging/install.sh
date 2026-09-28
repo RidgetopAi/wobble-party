@@ -113,6 +113,8 @@ unplace() {
 
 mkdir -p -m 700 -- "$STATE"
 [[ -d $STATE && ! -L $STATE ]] || die "$STATE is not a directory"
+# mkdir -m only applies to a new directory; make an existing one private too.
+chmod 700 -- "$STATE"
 SKIPPED=0
 FILES=("$BINDIR/wobble-party" "$BINDIR/wobble-brain" "$APPDIR/wobble-party.desktop" "$ICONDIR/wobble-party.svg")
 

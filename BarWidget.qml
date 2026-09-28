@@ -70,7 +70,7 @@ BarWidget {
     // The log goes in our own state directory, in a fresh file mktemp creates
     // (never an existing path, never through a symlink).
     command: ["sh", "-c",
-      "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party\"; mkdir -p -m 700 \"$d\" || exit 1;"
+      "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party\"; mkdir -p -m 700 \"$d\" && [ ! -L \"$d\" ] && chmod 700 \"$d\" || exit 1;"
       + " rm -f \"$d\"/install.*.log; log=$(mktemp \"$d/install.XXXXXX.log\") || exit 1;"
       + " if ! command -v cargo >/dev/null 2>&1; then notify-send -u critical 'Wobble Party' 'Needs Rust to build: Omarchy menu → Install → Development → Rust, then click again'; exit 1; fi;"
       + " notify-send 'Wobble Party' 'Building the wobble brain… (a minute or two)';"
