@@ -197,8 +197,11 @@ impl Analyzer {
         let hat = self.hat_pick.update(high);
         let low_n = self.kick_scale.update(low);
 
-        let b = self.beat.update(flux_n, low_n, silent);
+        let b = self.beat.update(flux_n, low_n, bands[1], level, silent);
         let s = self.sections.update(level, bands[0], bands[1], bands[5], onset, kick, self.beat.confidence);
+        if s.drop > 0.0 {
+            self.beat.anchor_downbeat();
+        }
 
         let (vl, vr): (Vec<f32>, Vec<f32>) = (
             window(self.write, VOCAL_WIN, &self.ring_l).collect(),

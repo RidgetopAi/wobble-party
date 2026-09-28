@@ -30,7 +30,32 @@ pub struct BeatTracker {
     bar_acc: [f32; 4],
     pub bar_offset: u64,
     pending_downbeat: f32,
+    /// Bass / level means over the half beat before and after the last beat.
+    pre: HalfBeat,
+    post: HalfBeat,
+    next_pre: HalfBeat,
+    /// Recent (beat, level over the half beat after it), for anchoring the
+    /// bar on a drop.
+    recent_levels: VecDeque<(u64, f32)>,
     locked: bool,
+}
+
+#[derive(Default, Clone, Copy)]
+struct HalfBeat {
+    bass: f32,
+    level: f32,
+    n: f32,
+}
+
+impl HalfBeat {
+    fn add(&mut self, bass: f32, level: f32) {
+        self.bass += bass;
+        self.level += level;
+        self.n += 1.0;
+    }
+    fn mean(&self) -> (f32, f32) {
+        if self.n > 0.0 { (self.bass / self.n, self.level / self.n) } else { (0.0, 0.0) }
+    }
 }
 
 pub struct BeatOut {
@@ -62,13 +87,18 @@ impl BeatTracker {
             bar_acc: [0.0; 4],
             bar_offset: 0,
             pending_downbeat: 0.0,
+            pre: HalfBeat::default(),
+            post: HalfBeat::default(),
+            next_pre: HalfBeat::default(),
+            recent_levels: VecDeque::with_capacity(9),
             locked: false,
         }
     }
 
     /// `onset`: onset-strength envelope sample. `low`: low-band onset strength
-    /// (kick-ish), used for downbeat estimation. `silent`: input is silent.
-    pub fn update(&mut self, onset: f32, low: f32, silent: bool) -> BeatOut {
+    /// (kick-ish), `bass`/`level`: normalised bass-band and overall level; the
+    /// last three drive downbeat estimation. `silent`: input is silent.
+    pub fn update(&mut self, onset: f32, low: f32, bass: f32, level: f32, silent: bool) -> BeatOut {
         self.frame += 1;
         self.env.push_back(if silent { 0.0 } else { onset });
         if self.env.len() > self.env_len {
@@ -91,21 +121,40 @@ impl BeatTracker {
             self.pending_downbeat = self.pending_downbeat.max(low);
         }
 
+        let first_half = self.phase < 0.5;
+        if first_half {
+            self.post.add(bass, level);
+        } else {
+            self.next_pre.add(bass, level);
+        }
+
         self.phase += 1.0 / self.period;
         let mut hit = false;
         if self.phase >= 1.0 {
             self.phase -= 1.0;
             self.beat += 1;
             hit = true;
+            self.pre = std::mem::take(&mut self.next_pre);
+            self.post = HalfBeat::default();
         }
-        // Vote once the window around the beat has closed.
-        if self.phase >= 0.1 && self.phase - 1.0 / self.period < 0.1 {
+        // Vote once the half beat after the beat has been heard. Downbeats
+        // are where the arrangement changes: the bass moves and sections land.
+        // A kick alone says little in four-on-the-floor, so it only nudges.
+        if first_half && self.phase >= 0.5 {
+            let (pre_bass, pre_level) = self.pre.mean();
+            let (post_bass, post_level) = self.post.mean();
+            let jump = (post_level - pre_level).max(0.0);
+            let vote = 0.3 * self.pending_downbeat + 2.0 * (post_bass - pre_bass).abs() + 2.0 * jump;
             let slot = (self.beat % 4) as usize;
             for v in self.bar_acc.iter_mut() {
                 *v *= 0.97;
             }
-            self.bar_acc[slot] += self.pending_downbeat;
+            self.bar_acc[slot] += vote;
             self.pending_downbeat = 0.0;
+            if self.recent_levels.len() >= 8 {
+                self.recent_levels.pop_front();
+            }
+            self.recent_levels.push_back((self.beat, post_level));
             let best = (0..4).max_by(|&a, &b| self.bar_acc[a].total_cmp(&self.bar_acc[b])).unwrap();
             let current = (self.bar_offset % 4) as usize;
             if self.bar_acc[best] > self.bar_acc[current] * 1.25 {
@@ -114,6 +163,27 @@ impl BeatTracker {
         }
         let bar_beat = ((self.beat + 4 - self.bar_offset % 4) % 4) as u8;
         BeatOut { hit, bar_beat }
+    }
+
+    /// A drop was detected (a little after it landed): the beat among the
+    /// last few whose level jumps most over the bar before it is a downbeat,
+    /// whatever the votes said. Measured against a whole bar, not the half
+    /// beat before, so off-beat pickups into the drop do not win.
+    pub fn anchor_downbeat(&mut self) {
+        let lv: Vec<(u64, f32)> = self.recent_levels.iter().copied().collect();
+        let mut best: Option<(u64, f32)> = None;
+        for i in 4.max(lv.len().saturating_sub(3))..lv.len() {
+            let before = lv[i - 4..i].iter().map(|x| x.1).sum::<f32>() / 4.0;
+            let jump = lv[i].1 - before;
+            if best.is_none_or(|b| jump > b.1) {
+                best = Some((lv[i].0, jump));
+            }
+        }
+        let Some((beat, _)) = best else { return };
+        let slot = (beat % 4) as usize;
+        let top = self.bar_acc.iter().cloned().fold(0.0, f32::max);
+        self.bar_acc[slot] = top * 1.5 + 0.5;
+        self.bar_offset = slot as u64;
     }
 
     fn env_at(&self, frames_ago: f32) -> f32 {
