@@ -6,3 +6,8 @@ music/
 target/
 *.local
 __pycache__/
+
+# Agent guide: local only (the marketplace treats shipped agent instructions as a blocker).
+CLAUDE.md
+AGENTS.md
+.claude/
