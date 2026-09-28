@@ -32,7 +32,10 @@ pub struct Sections {
     onsets: VecDeque<bool>,
     kicks: VecDeque<bool>,
     density: Follower,
+    density_long: Follower,
     build: Follower,
+    build_held: f32,
+    build_decay: f32,
     since_drop: usize,
     since_build: usize,
     section: u8,
@@ -55,7 +58,10 @@ impl Sections {
             onsets: VecDeque::new(),
             kicks: VecDeque::new(),
             density: Follower::new(0.5, 1.0, fps),
+            density_long: Follower::new(8.0, 8.0, fps),
             build: Follower::new(1.0, 0.4, fps),
+            build_held: 0.0,
+            build_decay: (-1.0 / (2.5 * fps)).exp(),
             since_drop: usize::MAX / 2,
             since_build: usize::MAX / 2,
             section: GROOVE,
@@ -96,9 +102,14 @@ impl Sections {
             self.hist.pop_front();
         }
 
-        // Build: brightness and density rising while the low end is held back.
+        // Build: tension rising (onsets thickening, highs opening up, level
+        // climbing) while the low end is held back — or the low end pulled out
+        // under a still-busy mix (snare roll over a filtered/removed bass).
         let rising_high = ((hs - hl) * 3.0).clamp(0.0, 1.0);
         let bass_held = ((bl - bs) * 2.5 + 0.3).clamp(0.0, 1.0);
+        let bass_out = ((bl - bs) * 3.0).clamp(0.0, 1.0);
+        let density_rise = ((density - self.density_long.update(density)) * 3.0).clamp(0.0, 1.0);
+        let busy = ((density - 0.25) * 3.0).clamp(0.0, 1.0);
         let win = (4.0 * self.fps) as usize;
         let slope = if self.hist.len() >= win {
             let q = win / 4;
@@ -107,8 +118,13 @@ impl Sections {
         } else {
             0.0
         };
-        let build_raw = (rising_high * 0.4 + slope * 0.4 + density * 0.2) * bass_held;
-        let build = self.build.update(build_raw);
+        let tension = density_rise.max(rising_high).max(slope);
+        let build_raw = (tension * 0.8 * bass_held + bass_out * busy * 0.6 + 0.3 * density_rise * bass_out).min(1.0);
+        // Hold the tension until the energy lands (or it fades): risers often
+        // end with a beat of silence or a few sub hits before the drop.
+        let held = if fast > 0.55 && slope > 0.5 { 0.0 } else { self.build_held * self.build_decay };
+        self.build_held = self.build.update(build_raw).max(held);
+        let build = self.build_held;
 
         // Drop: a sustained energy step — a quiet stretch (breakdown/build)
         // followed by the full mix with low end slamming in. Rare by design.
