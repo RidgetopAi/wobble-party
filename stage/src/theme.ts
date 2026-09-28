@@ -3,7 +3,8 @@
  *
  * The theme drives the world: light rig, lasers, LED walls, floor, haze and
  * the crowd's vinyl colours. The DJ and hero wobblers keep their own identity.
- * Monochrome themes (e.g. vantablack) become a black/silver club; light themes
+ * Monochrome themes (e.g. vantablack) become a black/silver club with a candy-
+ * coloured crowd; light themes
  * lift the venue. Theme changes cross-fade: every consumer holds references
  * to the Color objects below, which are lerped in place.
  */
@@ -72,6 +73,9 @@ const FALLBACK: Record<string, string> = {
   orange: '#ff9e64',
 };
 
+/** Crowd vinyl for mono themes (after the key art). */
+const CANDY = ['#ff5c8a', '#ffc93c', '#2ec4c6', '#9b6bff', '#ff8a3d', '#52d273', '#5b8cff', '#f26bd6', '#b8f2e6', '#ff4f5e'];
+
 export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette {
   const col = { ...FALLBACK, ...msg.colors };
   const bg = parse(col.background, '#101014');
@@ -114,9 +118,9 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
   const crowd: THREE.Color[] = [];
   for (let i = 0; i < N_CROWD; i++) {
     if (mono) {
-      // Wide spread of greys, few near-whites: contrast is all mono has.
-      const l = [0.08, 0.7, 0.4, 0.18, 0.56, 0.3, 0.8, 0.12, 0.48, 0.24][i];
-      crowd.push(new THREE.Color().setHSL(0, 0, l));
+      // Mono themes have no colours to give the crowd; keep the key art's
+      // candy vinyl so the wobblers pop against a black/white club.
+      crowd.push(new THREE.Color(CANDY[i % CANDY.length]));
     } else {
       const src = (vivid.length ? vivid : cands)[i % Math.max(1, vivid.length || cands.length)];
       const shade = [0.55, 0.62, 0.48, 0.66, 0.52][i % 5];

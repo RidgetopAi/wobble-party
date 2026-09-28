@@ -70,7 +70,7 @@ in plain Rust on mel features; trained on 77 a cappellas x 57 instrumentals with
 reaches AUC 0.88 on singers and instrumentals it never saw (the DSP-only baseline reached 0.65).
 
 **Themes.** Each Omarchy theme becomes a light rig, crowd palette and venue; monochrome themes
-become a black-and-silver club and light themes a daylight party. Theme changes cross-fade live.
+become a black-and-white club full of candy-coloured wobblers, and light themes a daylight party. Theme changes cross-fade live.
 
 ![All 22 Omarchy themes](docs/img/themes.jpg)
 
