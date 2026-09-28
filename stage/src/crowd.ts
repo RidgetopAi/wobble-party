@@ -27,7 +27,11 @@ export class DJDancer extends Dancer {
     switch (e.type) {
       case 'danceBeat':
         rig.kick(-(0.9 + 1.3 * m.hype), 0);
-        if (e.beat % 8 === 0) this.chooseDJ(m);
+        if (e.beat % 8 === 0) {
+          this.chooseDJ(m);
+          // The DJ's trademark: swirls more than anyone.
+          if ((m.section === Section.Peak || m.section === Section.Groove) && this.rng.chance(0.12 + 0.2 * m.hype)) this.startSwirl(m, 0, 2);
+        }
         return;
       case 'hat':
         this.scratch = e.strength;
@@ -36,6 +40,7 @@ export class DJDancer extends Dancer {
         this.djRoutine = 'hype';
         this.jump(ctx.time, 0, 0.3);
         this.wooUntil = ctx.time + 1.0;
+        if (this.rng.chance(0.6)) this.startSwirl(m, 3, 2);
         return;
       case 'phraseStart':
         if (this.rng.chance(0.5)) this.djRoutine = 'point';
@@ -210,6 +215,15 @@ export class Crowd {
       const x = d.w.home.x;
       const delay = clamp(((fromLeft ? x : -x) + 14) / 28) * beatDur * 4;
       d.jump(time, delay, 0.32);
+    }
+  }
+
+  /** Everyone swirls the same way, rippling back from the front-centre heroes. */
+  swirlRipple(music: Music, dir: 1 | -1) {
+    for (const d of this.dancers) {
+      if (d === this.dj) continue;
+      const r = Math.hypot(d.w.home.x, d.w.home.z + 1);
+      d.startSwirl(music, Math.min(6, Math.round(r / 2.5)), 2, dir);
     }
   }
 

@@ -9,6 +9,8 @@
  *   shimmy   upper-body twist on busy hi-hats
  *   build    shake, rise, arms climb
  *   drop     staggered big jumps, spins, star eyes, "woo"
+ *   swirl    the signature move: the lean sweeps a full circle on the bar
+ *            while the face keeps looking ahead (a weeble going round)
  *   arms     a routine chosen every two bars by section + personality
  *   idle     breathing, glances and fidgets when the music stops
  */
@@ -61,6 +63,9 @@ export class Dancer {
   protected nextIdle = 0;
   protected hopEveryBeat = false;
   protected hoppedBeat = -1;
+  /** Active swirl, in (lagged) dance beats. */
+  protected swirl: { start: number; loops: number; dir: 1 | -1; amp: number } | null = null;
+  protected swirlEnv = 0;
   /** Seconds the camera wants this one to look at it. */
   lookAtCamera = 0;
   /** Belt/emblem glow scale (0 in light themes, where glow reads as smudges). */
@@ -81,13 +86,27 @@ export class Dancer {
     this.pending.push({ at: time + delay, kind: 'jump', v: Rig.hopSpeed(airtime) });
   }
 
+  /**
+   * Start the swirl on a beat `delayBeats` from the next one. One loop per bar,
+   * so each beat lands on a quarter of the circle. No-op if already swirling.
+   */
+  startSwirl(music: Music, delayBeats = 0, loops = 2, dir: 1 | -1 = this.rng.chance(0.5) ? 1 : -1) {
+    if (this.swirl || music.presence < 0.5) return;
+    const start = Math.ceil(music.danceBeatPos - this.p.lag) + delayBeats;
+    this.swirl = { start, loops, dir, amp: (0.17 + 0.1 * this.p.showoff) * (0.8 + 0.4 * this.p.sway) };
+  }
+
   onEvent(e: MusicEvent, ctx: DanceContext) {
     const { music, time } = ctx;
     const rig = this.w.rig;
     const h = music.hype * this.p.energy;
     switch (e.type) {
       case 'danceBeat': {
-        if (e.beat % 8 === 0) this.chooseRoutine(music);
+        if (e.beat % 8 === 0) {
+          this.chooseRoutine(music);
+          const hot = music.section === Section.Peak || music.section === Section.Groove;
+          if (hot && this.rng.chance(0.03 + 0.1 * this.p.showoff * clamp(h))) this.startSwirl(music, 0, this.rng.chance(0.5) ? 1 : 2);
+        }
         // Nod: a forward kick; the weeble springs back by itself.
         rig.kick(-(0.5 + 0.9 * h) * (0.5 + this.p.bounce) * this.w.look.scale, 0);
         this.hopEveryBeat = h * this.p.jumpy > 0.5 || (music.section === Section.Build && music.build > 0.75);
@@ -114,6 +133,8 @@ export class Dancer {
         this.routine = this.rng.chance(0.6) ? 'handsUp' : 'wave';
         if (this.rng.chance(0.35 + 0.4 * this.p.showoff)) this.starUntil = time + (4 * 60) / music.danceBpm;
         this.wooUntil = time + 0.7;
+        // Once the landing settles, show off.
+        if (this.rng.chance(0.2 + 0.4 * this.p.showoff)) this.startSwirl(music, 3);
         break;
       }
       case 'phraseStart':
@@ -219,7 +240,7 @@ export class Dancer {
     const air = Math.min(0.3, 0.42 * beatDur) * (0.6 + 0.4 * clamp(h));
     const takeoff = 1 - air / beatDur;
     const beatIdx = Math.floor(beats);
-    if (pres > 0.5 && this.lastPhase < takeoff && ph >= takeoff && !rig.airborne && this.hoppedBeat !== beatIdx) {
+    if (pres > 0.5 && this.swirlEnv < 0.3 && this.lastPhase < takeoff && ph >= takeoff && !rig.airborne && this.hoppedBeat !== beatIdx) {
       const every = this.hopEveryBeat || (h * p.bounce > 0.75 && music.section === Section.Peak);
       const onDown = (beatIdx + 1) % 2 === 0 && h * p.jumpy > 0.35;
       if (every || onDown) {
@@ -236,6 +257,23 @@ export class Dancer {
     const swayAmp = (0.035 + 0.08 * p.sway) * (0.5 + 0.8 * music.calm + 0.5 * music.vocal * p.singer) * this.swayGain * pres;
     rig.tiltZ.target = sw * swayAmp;
     rig.tiltX.target = -0.07 * music.vocal * p.singer * pres + 0.08 * music.pitch * music.vocal * p.singer;
+
+    // ---- swirl: tilt targets go round a circle, one loop per bar. Yaw is
+    // untouched, so the face stays put while the bottom rolls round under it.
+    this.swirlEnv = 0;
+    const sw8 = this.swirl;
+    if (sw8) {
+      // Small lead for the tilt spring's lag, like the groove.
+      const u = (beats + 0.08 - sw8.start) / 4;
+      if (u >= sw8.loops || pres < 0.3) this.swirl = null;
+      else if (u > 0) {
+        this.swirlEnv = smoothstep(0, 0.3, u) * smoothstep(sw8.loops, sw8.loops - 0.3, u) * pres;
+        const a = 2 * Math.PI * u * sw8.dir;
+        const r = sw8.amp * this.swirlEnv;
+        rig.tiltX.target += r * Math.cos(a);
+        rig.tiltZ.target = rig.tiltZ.target * (1 - this.swirlEnv) + r * Math.sin(a);
+      }
+    }
 
     // ---- shimmy
     const shim = p.shimmy * clamp(music.high * 1.2 + music.density - 0.6) * h;
@@ -370,7 +408,7 @@ export class Dancer {
     e.mouth = Math.max(woo, clamp(music.mouth * singing * 1.1));
     e.smile = 0.5 + 0.35 * clamp(h);
     e.star = time < this.starUntil;
-    e.happy = !e.star && (time < this.happyUntil || (music.section === Section.Peak && h > 0.9 && Math.sin(time * 0.7 + p.lag * 50) > 0.6));
+    e.happy = !e.star && (time < this.happyUntil || this.swirlEnv > 0.5 || (music.section === Section.Peak && h > 0.9 && Math.sin(time * 0.7 + p.lag * 50) > 0.6));
     e.closed = this.closedSinging && music.vocal > 0.4;
     e.blush = 0.45 + 0.4 * clamp(h);
     e.lookX = this.glanceUntil > 0 ? this.glance : 0;

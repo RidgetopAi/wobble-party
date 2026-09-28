@@ -90,6 +90,9 @@ async function startParty() {
     party.nowPlaying.onTrack({ type: 'track', playing: true, player: 'test', title: params.get('title')!, artist: params.get('artist') ?? '', art: params.get('art') });
   }
 
+  // Debug: ?swirl makes everyone do the signature move every 4 bars.
+  party.show.forceSwirl = params.has('swirl');
+
   // Debug: ?hide=lasers,haze,beams,spots,floor,wall,crowd isolates layers.
   const hide = new Set((params.get('hide') ?? '').split(',').filter(Boolean));
   party.debugHide(hide);

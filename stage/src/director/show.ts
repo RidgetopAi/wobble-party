@@ -16,6 +16,8 @@ import type { CameraDirector } from './camera';
 export class ShowDirector {
   private rng = new Rng(314);
   private bar = 0;
+  /** Debug (?swirl): a swirl ripple every 4 bars. */
+  forceSwirl = false;
 
   constructor(
     private rig: LightRig,
@@ -64,6 +66,14 @@ export class ShowDirector {
     // A stadium wave now and then when the room is hot.
     if (music.section === Section.Peak && this.bar % 16 === 8 && this.rng.chance(0.6)) {
       this.crowd.wave(time, this.rng.chance(0.5), 60 / music.danceBpm);
+    }
+    // The crowd's signature move, rippling out from the middle.
+    if (this.forceSwirl && this.bar % 4 === 1) {
+      const dir = this.rng.chance(0.5) ? 1 : -1;
+      this.crowd.swirlRipple(music, dir);
+      this.crowd.dj.startSwirl(music, 0, 2, dir);
+    } else if (music.hype > 0.55 && ((music.section === Section.Peak && this.bar % 16 === 0 && this.rng.chance(0.5)) || (music.section === Section.Groove && this.bar % 16 === 12 && this.rng.chance(0.25)))) {
+      this.crowd.swirlRipple(music, this.rng.chance(0.5) ? 1 : -1);
     }
     // Confetti sprinkles at peaks.
     if (music.section === Section.Peak && this.rng.chance(0.3)) {
