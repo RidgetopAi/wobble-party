@@ -12,7 +12,7 @@ def seg(k0, beats, theme, shot):
 
 # Portrait-friendly shots only (djReverse / stageSide read poorly at 9:16).
 SEGS = [
-    seg(0, 8, 'hackerman', 'crane'),
+    seg(0, 8, 'hackerman', 'orbit'),
     seg(2, 4, 'tokyo-night', 'heroClose'),
     seg(3, 4, 'gruvbox', 'djClose'),
     seg(4, 4, 'catppuccin-latte', 'crowdDolly'),
@@ -25,7 +25,7 @@ for i, (th, sh) in enumerate(fast):
 SEGS += [
     seg(8, 8, 'catppuccin', 'heroClose'),
     seg(10, 8, 'ethereal', 'djClose'),
-    seg(12, 4, 'retro-82', 'orbit'),
+    seg(12, 4, 'retro-82', 'overhead'),
     seg(13, 12, 'hackerman', 'wide'),    # end card plate (3 bars: fade + hold)
 ]
 
