@@ -31,13 +31,19 @@ const sep = query.includes('?') ? '&' : '?';
 await page.goto(base + query + sep + 'capture&frozen', { waitUntil: 'load' });
 await page.waitForFunction(() => window.__wp?.ready, null, { timeout: 60000 });
 const shotKind = opt('--shot', null);
-const info = await page.evaluate(([n, shot]) => {
+await page.evaluate(([n, shot]) => {
   if (shot) window.__wp.shot(shot, 2);
   window.__wp.step(n);
+}, [steps, shotKind]);
+// Let async work queued during the batch (font loads, textures) land, then
+// advance a few more frames like a live page would.
+await page.waitForTimeout(300);
+const info = await page.evaluate(() => {
+  window.__wp.step(20);
   const gl = document.querySelector('canvas').getContext('webgl2');
   const dbg = gl.getExtension('WEBGL_debug_renderer_info');
   return dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
-}, [steps, shotKind]);
+});
 await page.screenshot({ path: out });
 console.log('renderer:', info);
 for (const l of logs.slice(0, 20)) console.log(l);

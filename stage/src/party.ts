@@ -13,7 +13,8 @@ import { Post } from './post';
 import { ThemeState, type Palette } from './theme';
 import { Confetti, Haze } from './world/fx';
 import { LightRig } from './world/lights';
-import { createShowUniforms, updateShowUniforms, type ShowUniforms } from './world/showUniforms';
+import { createShowUniforms, setLedMode, updateShowUniforms, type ShowUniforms } from './world/showUniforms';
+import { LED_MODES } from './world/led';
 import { Venue } from './world/venue';
 
 export interface PartyOptions {
@@ -53,6 +54,8 @@ export class Party {
     this.theme = new ThemeState(palette);
     const p = this.theme.p;
     this.u = createShowUniforms(p);
+    setLedMode(this.u, LED_MODES.plasma);
+    this.u.uModeMix.value = 1;
     this.scene.background = p.bgDeep;
     this.fog = new THREE.FogExp2(p.bgDeep.getHex(), 0.016);
     this.scene.fog = this.fog;

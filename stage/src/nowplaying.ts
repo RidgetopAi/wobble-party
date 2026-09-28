@@ -20,6 +20,8 @@ export class NowPlaying {
   private marqueeT = -1;
   private artUrl: string | null = null;
   private artReady = false;
+  private idle = false;
+  private silentT = 0;
   track: TrackMessage | null = null;
 
   constructor(private u: ShowUniforms) {
@@ -54,9 +56,10 @@ export class NowPlaying {
     }
   }
 
-  private async drawText(t: TrackMessage) {
+  private async drawText(t: Pick<TrackMessage, 'title' | 'artist'>) {
     await this.font;
-    const text = `♪  ${t.title.toUpperCase()}${t.artist ? '  ·  ' + t.artist.toUpperCase() : ''}`;
+    // Titan One has no music-note glyph, so the note is drawn by hand below.
+    const text = `${t.title.toUpperCase()}${t.artist ? '  ·  ' + t.artist.toUpperCase() : ''}`;
     const g = this.canvas.getContext('2d')!;
     const H = 128;
     g.font = `92px "Titan One", sans-serif`;
@@ -80,6 +83,25 @@ export class NowPlaying {
 
   update(dt: number, music: Music) {
     const u = this.u;
+    // Silence: invite the user to play something, until the music starts.
+    this.silentT = music.playing ? 0 : this.silentT + dt;
+    if (!this.idle && this.silentT > 4 && this.marqueeT < 0) {
+      this.idle = true;
+      this.key = '';
+      void this.drawText({ title: 'Play something', artist: 'cliamp · Spotify · anything' });
+    }
+    if (this.idle && music.playing) {
+      // Let the invitation fade out; a new track's title replaces it.
+      this.idle = false;
+      if (this.marqueeT >= 0) this.marqueeT = MARQUEE_SECONDS - 1.2;
+    }
+    if (this.idle && this.marqueeT >= 0) {
+      this.marqueeT = Math.min(this.marqueeT + dt, 1);
+      u.uMarqueeMix.value = 0.75 * this.marqueeT;
+      u.uMarqueeScroll.value += (dt / 6) * (8 / Math.max(4, u.uMarqueeAspect.value)) * 1.6;
+      u.uArtMix.value *= Math.exp(-dt * 1.5);
+      return;
+    }
     if (this.marqueeT >= 0) {
       this.marqueeT += dt;
       const t = this.marqueeT;
