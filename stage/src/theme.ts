@@ -114,7 +114,7 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
     while (lights.length < N_LIGHTS) lights.push(lights[lights.length % Math.max(1, lights.length - 1)].clone());
   }
 
-  // Crowd vinyl: theme hues at toy-like lightness; greys for mono themes.
+  // Crowd vinyl: theme hues at toy-like lightness; candy colours for mono themes.
   const crowd: THREE.Color[] = [];
   for (let i = 0; i < N_CROWD; i++) {
     if (mono) {
