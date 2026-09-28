@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Wobble Party
+GenericName=Music Party
+Comment=Wobblers dance to whatever you are playing
+Exec=@BINDIR@/wobble-party
+Icon=wobble-party
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;visualizer;party;dance;wobble;
+StartupWMClass=chrome-wobble.localhost__-Default

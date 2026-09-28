@@ -13,8 +13,11 @@ wobble-brain — Wobble Party audio brain
 
 USAGE:
   wobble-brain serve [--port 7477] [--static DIR] [--file PATH [--loop]]
+                     [--exit-when-idle SECS]
       Listen to the desktop mix (default sink monitor), or a file played in
       real time, and stream analysis frames to the stage at ws://127.0.0.1:PORT/ws.
+      The stage is built in; --static serves it from disk instead (development).
+      --exit-when-idle stops the brain once no stage has been connected for SECS.
 
   wobble-brain analyze PATH [--out FILE.jsonl] [--features]
       Analyse a file offline (as fast as possible) and write one JSON frame
@@ -41,13 +44,14 @@ fn main() -> Result<()> {
     match cmd.as_str() {
         "serve" => {
             let port = value("--port").map(|p| p.parse()).transpose()?.unwrap_or(7477);
-            let static_dir = value("--static").map(PathBuf::from).unwrap_or_else(default_static_dir);
+            let static_dir = value("--static").map(PathBuf::from);
+            let exit_when_idle = value("--exit-when-idle").map(|s| s.parse::<f64>()).transpose()?.map(std::time::Duration::from_secs_f64);
             let source = match value("--file") {
                 Some(p) => source::Source::File { path: p.into(), realtime: true },
                 None => source::Source::Monitor,
             };
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(server::run(server::Options { port, source, static_dir, loop_file: flag("--loop") }))
+            rt.block_on(server::run(server::Options { port, source, static_dir, loop_file: flag("--loop"), exit_when_idle }))
         }
         "analyze" => {
             let path = args.get(1).context("analyze needs a PATH")?;
@@ -119,17 +123,4 @@ fn main() -> Result<()> {
         }
         other => bail!("unknown command `{other}`\n\n{USAGE}"),
     }
-}
-
-/// The built stage lives next to the binary's repo checkout (`stage/dist`).
-fn default_static_dir() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        for dir in exe.ancestors().skip(1) {
-            let candidate = dir.join("stage/dist");
-            if candidate.join("index.html").exists() {
-                return candidate;
-            }
-        }
-    }
-    PathBuf::from("stage/dist")
 }

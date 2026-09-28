@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Wobble Party launcher.
+#
+#   wobble-party            open the party (focus it if it is already open)
+#   wobble-party toggle     open it, or close it if it is open
+#   wobble-party stop       close it
+#   wobble-party status     print "running" or "stopped"
+#
+# The party is a Chromium app window on http://wobble.localhost:PORT/ served
+# by wobble-brain, which listens to whatever the desktop is playing (cliamp,
+# Spotify in the browser, anything on the default output). Chromium resolves
+# *.localhost to loopback, and the host gives the window a class of its own
+# (chrome-wobble.localhost__-Default) for Hyprland rules.
+
+set -euo pipefail
+
+PORT="${WOBBLE_PARTY_PORT:-7477}"
+URL="http://wobble.localhost:$PORT/"
+CLASS_RE='^chrome-wobble\.localhost__'
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/wobble-party"
+HERE="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
+BRAIN="$(command -v wobble-brain || true)"
+[[ -n $BRAIN ]] || BRAIN="$HERE/wobble-brain"
+
+mkdir -p "$STATE"
+
+window() {
+  hyprctl clients -j 2>/dev/null | jq -r --arg re "$CLASS_RE" 'first(.[] | select(.class | test($re)) | .address) // empty'
+}
+
+brain_up() {
+  curl -fs -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1
+}
+
+start_brain() {
+  brain_up && return 0
+  [[ -x $BRAIN ]] || {
+    notify-send -u critical "Wobble Party" "wobble-brain is not installed — run packaging/install.sh"
+    exit 1
+  }
+  # Exits by itself a few seconds after the last window closes.
+  setsid "$BRAIN" serve --port "$PORT" --exit-when-idle 6 >>"$STATE/brain.log" 2>&1 </dev/null &
+  for _ in $(seq 60); do
+    brain_up && return 0
+    sleep 0.1
+  done
+  notify-send -u critical "Wobble Party" "The wobble brain did not start — see $STATE/brain.log"
+  exit 1
+}
+
+open_window() {
+  local chromium
+  chromium="$(command -v chromium || command -v chromium-browser || true)"
+  if [[ -z $chromium ]]; then
+    # No Chromium: fall back to Omarchy's web-app launcher (default browser).
+    exec omarchy-launch-webapp "$URL"
+  fi
+  # A profile of its own keeps the party out of the user's browser session.
+  exec setsid uwsm-app -- "$chromium" --app="$URL" \
+    --user-data-dir="$STATE/chromium" \
+    --no-first-run --no-default-browser-check \
+    --disable-features=Translate \
+    --autoplay-policy=no-user-gesture-required
+}
+
+case "${1:-open}" in
+  open | start)
+    if addr="$(window)" && [[ -n $addr ]]; then
+      hyprctl dispatch focuswindow "address:$addr" >/dev/null
+      exit 0
+    fi
+    start_brain
+    open_window
+    ;;
+  toggle)
+    if addr="$(window)" && [[ -n $addr ]]; then
+      hyprctl dispatch closewindow "address:$addr" >/dev/null
+    else
+      start_brain
+      open_window
+    fi
+    ;;
+  stop)
+    if addr="$(window)" && [[ -n $addr ]]; then
+      hyprctl dispatch closewindow "address:$addr" >/dev/null
+    fi
+    ;;
+  status)
+    if [[ -n "$(window)" ]]; then echo running; else echo stopped; fi
+    ;;
+  -h | --help | help)
+    sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    echo "wobble-party: unknown command '$1' (try --help)" >&2
+    exit 2
+    ;;
+esac

@@ -1,5 +1,6 @@
 node_modules
-dist
+# stage/dist IS committed: it is embedded into wobble-brain, so installing the
+# plugin needs only cargo, not node.
 out/
 music/
 target/

@@ -180,7 +180,7 @@ export class LightRig {
     const laserGeo = mergeGeometries([a, b])!;
     laserGeo.translate(0, 17, 0);
     const sources = [
-      new THREE.Vector3(0, STAGE_Y + 1.5, BOOTH_Z + 0.2),
+      new THREE.Vector3(0, 8.1, -9.3), // back truss, above the LED wall
       new THREE.Vector3(-10, STAGE_Y + 0.3, -3.3),
       new THREE.Vector3(10, STAGE_Y + 0.3, -3.3),
     ];
@@ -327,6 +327,8 @@ export class LightRig {
         }
       }
       if (sideSign) yaw = yaw * 0.6 + sideSign * 0.7;
+      // The centre fan hangs from the back truss: aim it down over the crowd.
+      if (l.src === 0) pitch = -2.05 - (pitch + 0.95) * 0.8;
       l.mesh.rotation.set(0, 0, 0);
       l.mesh.rotateY(yaw);
       l.mesh.rotateX(-pitch);

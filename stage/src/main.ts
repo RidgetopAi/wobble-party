@@ -165,6 +165,24 @@ async function startParty() {
   };
   (window as unknown as { __wp: typeof api }).__wp = api;
 
+  // Keep the screen awake while the party is playing (Chromium maps the
+  // Wake Lock API to Wayland idle-inhibit, which hypridle honours).
+  let wake: WakeLockSentinel | null = null;
+  const wantWake = () => !capture && party.music.playing && document.visibilityState === 'visible';
+  setInterval(async () => {
+    try {
+      if (wantWake() && !wake) {
+        wake = await navigator.wakeLock.request('screen');
+        wake.addEventListener('release', () => (wake = null));
+      } else if (!wantWake() && wake) {
+        await wake.release();
+        wake = null;
+      }
+    } catch {
+      /* not allowed (e.g. hidden tab): try again later */
+    }
+  }, 2000);
+
   let last = performance.now();
   let fpsAcc = 0;
   let fpsN = 0;
