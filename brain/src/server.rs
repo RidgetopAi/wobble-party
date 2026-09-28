@@ -2,6 +2,7 @@
 //! updates over a WebSocket at `/ws`.
 
 use crate::analysis::Analyzer;
+use crate::nowplaying::{self, SharedArt};
 use crate::source::Source;
 use crate::theme;
 use axum::Router;
@@ -28,6 +29,8 @@ static STAGE: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../stage/dist");
 struct AppState {
     frames: broadcast::Sender<Arc<str>>,
     theme: watch::Receiver<Arc<str>>,
+    track: watch::Receiver<Arc<str>>,
+    art: SharedArt,
     clients: Arc<AtomicUsize>,
 }
 
@@ -45,16 +48,21 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
     let (frames, _) = broadcast::channel::<Arc<str>>(256);
     let (theme_tx, theme_rx) = watch::channel::<Arc<str>>(theme::current().to_string().into());
 
+    let (track_tx, track_rx) = watch::channel::<Arc<str>>(r#"{"type":"track","playing":false,"title":"","artist":""}"#.into());
+    let art = SharedArt::default();
+
     spawn_analysis(opts.source.clone(), opts.loop_file, frames.clone());
     tokio::spawn(watch_theme(theme_tx));
+    tokio::spawn(nowplaying::watch(track_tx, art.clone()));
 
     let clients = Arc::new(AtomicUsize::new(0));
-    let state = AppState { frames, theme: theme_rx, clients: clients.clone() };
+    let state = AppState { frames, theme: theme_rx, track: track_rx, art, clients: clients.clone() };
     let mut app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/theme/background", get(background))
         .route("/themes", get(|| async { axum::Json(theme::list()) }))
         .route("/themes/{name}", get(named_theme))
+        .route("/nowplaying/art", get(cover_art))
         .route("/health", get(|| async { "ok" }));
     app = match &opts.static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
@@ -179,9 +187,14 @@ async fn client(socket: WebSocket, state: AppState) {
 async fn serve_client(mut socket: WebSocket, state: &AppState) {
     let mut frames = state.frames.subscribe();
     let mut theme = state.theme.clone();
-    let initial = theme.borrow_and_update().clone();
-    if socket.send(Message::Text(initial.as_ref().into())).await.is_err() {
-        return;
+    let mut track = state.track.clone();
+    // Bind first: a borrow guard kept alive across the awaits below would
+    // make this future !Send.
+    let initial = [theme.borrow_and_update().clone(), track.borrow_and_update().clone()];
+    for initial in initial {
+        if socket.send(Message::Text(initial.as_ref().into())).await.is_err() {
+            return;
+        }
     }
     loop {
         tokio::select! {
@@ -197,6 +210,13 @@ async fn serve_client(mut socket: WebSocket, state: &AppState) {
             changed = theme.changed() => {
                 if changed.is_err() { return; }
                 let msg = theme.borrow_and_update().clone();
+                if socket.send(Message::Text(msg.as_ref().into())).await.is_err() {
+                    return;
+                }
+            }
+            changed = track.changed() => {
+                if changed.is_err() { return; }
+                let msg = track.borrow_and_update().clone();
                 if socket.send(Message::Text(msg.as_ref().into())).await.is_err() {
                     return;
                 }
@@ -226,6 +246,13 @@ async fn background() -> Response {
             ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-store")], bytes).into_response()
         }
         Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn cover_art(State(state): State<AppState>) -> Response {
+    match nowplaying::art_bytes(&state.art).await {
+        Some((bytes, mime)) => ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "max-age=3600")], bytes).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 

@@ -141,12 +141,14 @@ export class Crowd {
     this.dj = new DJDancer(djW, 1);
     this.add(this.dj, 0);
 
+    // Heroes are the front row: nothing between them and the stage, so
+    // close-ups have a clear line of sight.
     const heroSpots: [number, number][] = [
-      [-1.2, -1.2],
-      [1.3, -1.0],
-      [-3.4, -0.4],
-      [3.5, -0.2],
-      [0.1, 0.6],
+      [-1.3, -1.1],
+      [1.3, -1.1],
+      [-3.8, -0.8],
+      [3.8, -0.8],
+      [0.0, -0.7],
     ];
     heroLooks().forEach((look, i) => {
       const w = new Wobbler(look, 100 + i, quality);
@@ -159,7 +161,7 @@ export class Crowd {
     // Crowd rows: an arc facing the booth, denser up front.
     const spots: [number, number][] = [];
     for (let row = 0; spots.length < count && row < 14; row++) {
-      const z = -0.8 + row * 1.35;
+      const z = 0.35 + row * 1.35;
       const half = 5 + row * 0.75;
       const n = Math.round((half * 2) / 1.45);
       for (let k = 0; k <= n; k++) {

@@ -29,6 +29,14 @@ export interface ShowUniforms {
   uMode: { value: number };
   uModePrev: { value: number };
   uModeMix: { value: number };
+  /** Now-playing marquee: text texture, visibility, text aspect, scroll. */
+  uMarquee: { value: THREE.Texture | null };
+  uMarqueeMix: { value: number };
+  uMarqueeAspect: { value: number };
+  uMarqueeScroll: { value: number };
+  /** Cover art shown as LED pixels. */
+  uArt: { value: THREE.Texture | null };
+  uArtMix: { value: number };
 }
 
 export function createShowUniforms(p: Palette): ShowUniforms {
@@ -52,6 +60,12 @@ export function createShowUniforms(p: Palette): ShowUniforms {
     uMode: { value: 0 },
     uModePrev: { value: 0 },
     uModeMix: { value: 1 },
+    uMarquee: { value: null },
+    uMarqueeMix: { value: 0 },
+    uMarqueeAspect: { value: 8 },
+    uMarqueeScroll: { value: 0 },
+    uArt: { value: null },
+    uArtMix: { value: 0 },
   };
 }
 
@@ -113,6 +127,12 @@ uniform float uLightMode;
 uniform float uMode;
 uniform float uModePrev;
 uniform float uModeMix;
+uniform sampler2D uMarquee;
+uniform float uMarqueeMix;
+uniform float uMarqueeAspect;
+uniform float uMarqueeScroll;
+uniform sampler2D uArt;
+uniform float uArtMix;
 
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);

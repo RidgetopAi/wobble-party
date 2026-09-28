@@ -15,6 +15,17 @@ export interface ThemeMessage {
   background: string | null;
 }
 
+export interface TrackMessage {
+  type: 'track';
+  playing: boolean;
+  player: string | null;
+  title: string;
+  artist: string;
+  album?: string;
+  genre?: string;
+  art: string | null;
+}
+
 export interface Feed {
   /** Deliver frames up to `now` (seconds on the feed's own clock). */
   poll(now: number, sink: (f: Frame) => void): void;
@@ -29,6 +40,7 @@ export class LiveFeed implements Feed {
   constructor(
     private url: string,
     private onTheme: (t: ThemeMessage) => void,
+    private onTrack: (t: TrackMessage) => void = () => {},
   ) {
     this.open();
   }
@@ -42,6 +54,7 @@ export class LiveFeed implements Feed {
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data as string);
       if (msg.type === 'theme') this.onTheme(msg as ThemeMessage);
+      else if (msg.type === 'track') this.onTrack(msg as TrackMessage);
       else this.queue.push(msg as Frame);
     };
     ws.onclose = () => {

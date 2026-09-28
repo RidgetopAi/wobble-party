@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { Section, type Music } from '../music';
 import { Rng, clamp, easeInOut } from '../rng';
 import type { Crowd } from '../crowd';
-import { STAGE_Y, DJ_Z } from '../world/venue';
+import { DJ_RISER, STAGE_FRONT, STAGE_Y, DJ_Z } from '../world/venue';
 
 export type ShotKind = 'wide' | 'djClose' | 'djReverse' | 'crowdDolly' | 'heroClose' | 'crane' | 'overhead' | 'orbit' | 'stageSide';
 
@@ -24,13 +24,19 @@ interface Shot {
   fov: number;
 }
 
-const DJ_HEAD = new THREE.Vector3(0, STAGE_Y + 1.25, DJ_Z);
+// The DJ's face: deck + riser + ~0.64 of a 1.05-tall wobbler at scale 1.55.
+const DJ_HEAD = new THREE.Vector3(0, STAGE_Y + DJ_RISER + 1.0, DJ_Z);
 
 /**
  * Shots are composed for 16:9. In a narrower window (a tiled half-screen or
  * portrait tile in Hyprland) widen the vertical FOV so the horizontal
  * coverage stays the same instead of cropping the stage.
  */
+/** Floor-level cameras must never end up inside the stage deck. */
+function keepOffStage(e: THREE.Vector3) {
+  if (e.y < STAGE_Y + 0.3 && e.z < STAGE_FRONT + 0.25) e.z = STAGE_FRONT + 0.25;
+}
+
 function fitFov(vfov: number, aspect: number) {
   const design = 16 / 9;
   if (aspect >= design) return vfov;
@@ -171,7 +177,7 @@ export class CameraDirector {
       case 'djClose': {
         const a = (sd - 0.5) * 0.9 + Math.sin(t * 0.15) * 0.25;
         const r = 4.4 - u * 0.9;
-        e.set(Math.sin(a) * r, STAGE_Y + 1.35 + 0.2 * Math.sin(t * 0.2), DJ_Z + Math.cos(a) * r);
+        e.set(Math.sin(a) * r, DJ_HEAD.y + 0.15 + 0.2 * Math.sin(t * 0.2), DJ_Z + Math.cos(a) * r);
         g.copy(DJ_HEAD).add(this.tmpT.set(0, -0.15, 0));
         s.fov = 34;
         break;
@@ -186,20 +192,24 @@ export class CameraDirector {
       case 'crowdDolly': {
         const dir = sd > 0.5 ? 1 : -1;
         const x = dir * (-6 + 12 * u);
-        e.set(x, 1.25, -2.2);
-        g.set(x * 0.7 + dir * 1.5, 0.75, 4);
+        e.set(x, 1.55, -2.75);
+        g.set(x * 0.7 + dir * 1.5, 0.7, 4);
         s.fov = 46;
         break;
       }
       case 'heroClose': {
+        // Framed on the hero's home spot, facing the DJ — never on the live
+        // (rolling, spinning) body, or every wobble would swing the camera.
         const hero = this.crowd.heroes[s.hero].w;
-        const hp = hero.root.position;
-        const yaw = hero.rig.yaw.x;
-        const d = 2.3 - u * 0.35;
-        const side = (sd - 0.5) * 0.9;
-        e.set(hp.x + Math.sin(yaw + side) * d, hp.y + 0.35, hp.z + Math.cos(yaw + side) * d);
-        g.set(hp.x, hp.y + 0.1, hp.z);
-        s.fov = 36;
+        const h = hero.home;
+        const face = hero.height * hero.look.scale * 0.62;
+        const yaw = Math.atan2(-h.x, DJ_Z - h.z);
+        const d = 1.75 - u * 0.25;
+        const side = (sd - 0.5) * 0.7;
+        const hop = hero.rig.y * 0.35;
+        e.set(h.x + Math.sin(yaw + side) * d, face + 0.28 + hop * 0.5, h.z + Math.cos(yaw + side) * d);
+        g.set(h.x, face - 0.05 + hop, h.z);
+        s.fov = 38;
         break;
       }
       case 'crane': {
@@ -236,6 +246,7 @@ export class CameraDirector {
   update(dt: number, music: Music, time: number) {
     this.current.t += dt;
     this.evaluate(this.current);
+    keepOffStage(this.current.eye);
     const eye = this.tmpE.copy(this.current.eye);
     const target = this.tmpT.copy(this.current.target);
     let fov = this.current.fov;

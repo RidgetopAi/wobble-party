@@ -1,5 +1,6 @@
 mod analysis;
 mod frame;
+mod nowplaying;
 mod server;
 mod source;
 mod theme;

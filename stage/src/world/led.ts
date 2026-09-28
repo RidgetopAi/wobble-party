@@ -71,6 +71,28 @@ void main() {
   vec3 a = programme(uMode, uv);
   vec3 b = programme(uModePrev, uv);
   vec3 col = mix(b, a, smoothstep(0.0, 1.0, uModeMix));
+  // Cover art, square and centred, as LED pixels.
+  if (uArtMix > 0.001) {
+    float wa = uRes.x / uRes.y;
+    vec2 au = vec2((uv.x - 0.5) * wa + 0.5, uv.y);
+    float inside = step(0.0, au.x) * step(au.x, 1.0);
+    vec3 art = texture2D(uArt, au).rgb;
+    col = mix(col, art * (0.9 + 0.3 * uKick), uArtMix * inside);
+  }
+  // Now-playing marquee across the middle band.
+  if (uMarqueeMix > 0.001) {
+    float band = 0.42;
+    float tv = (uv.y - (0.5 - band / 2.0)) / band;
+    if (tv > 0.0 && tv < 1.0) {
+      float wa = uRes.x / uRes.y;
+      float tu = uv.x * wa / (band * uMarqueeAspect) + uMarqueeScroll;
+      float a = texture2D(uMarquee, vec2(fract(tu), tv)).a;
+      vec3 tc = lightAt(uv.x * 0.5 + uTime * 0.05) * 1.3 + 0.25;
+      col = mix(col * (1.0 - 0.75 * uMarqueeMix), tc, a * uMarqueeMix);
+    } else {
+      col *= 1.0 - 0.6 * uMarqueeMix;
+    }
+  }
   col += uLights[1] * 0.05 * uDrop;
   vec3 base = uBg * 0.6 + 0.012;
   gl_FragColor = vec4((base + col * uGain) * (0.25 + 0.75 * dotMask), 1.0);

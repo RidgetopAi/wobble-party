@@ -75,12 +75,20 @@ async function startParty() {
     feed = new DemoFeed();
   } else {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    feed = new LiveFeed(`${proto}://${location.host}/ws`, (t) => {
-      currentTheme = t;
-      if (!preview) applyTheme(t, party.time < 0.5);
-    });
+    feed = new LiveFeed(
+      `${proto}://${location.host}/ws`,
+      (t) => {
+        currentTheme = t;
+        if (!preview) applyTheme(t, party.time < 0.5);
+      },
+      (t) => party.nowPlaying.onTrack(t),
+    );
   }
   if (preview) await loadNamed(preview, true);
+  // Replay/demo: `&title=..&artist=..` simulates a now-playing message.
+  if (params.get('title')) {
+    party.nowPlaying.onTrack({ type: 'track', playing: true, player: 'test', title: params.get('title')!, artist: params.get('artist') ?? '', art: params.get('art') });
+  }
 
   // Debug: ?hide=lasers,haze,beams,spots,floor,wall,crowd isolates layers.
   const hide = new Set((params.get('hide') ?? '').split(',').filter(Boolean));

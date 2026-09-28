@@ -49,8 +49,20 @@ void main() {
   float fall = pow(1.0 - clamp(vAlong, 0.0, 1.0), 1.6);
   float haze = 0.55 + 0.45 * noise(vW * 0.7 + vec3(0.0, uTime * 0.25, uTime * 0.15));
   float floorFade = smoothstep(0.0, 0.6, vW.y);
-  float a = uIntensity * edge * fall * haze * floorFade;
+  float near = smoothstep(1.0, 4.0, length(cameraPosition - vW));
+  float a = uIntensity * edge * fall * haze * floorFade * near;
   gl_FragColor = vec4(uColor * a, 1.0);
+}
+`;
+
+const LASER_VERT = /* glsl */ `
+varying vec2 vUv;
+varying float vCamDist;
+void main() {
+  vUv = uv;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vCamDist = -mv.z;
+  gl_Position = projectionMatrix * mv;
 }
 `;
 
@@ -58,11 +70,14 @@ const LASER_FRAG = /* glsl */ `
 uniform vec3 uColor;
 uniform float uIntensity;
 varying vec2 vUv;
+varying float vCamDist;
 void main() {
   float across = abs(vUv.x - 0.5) * 2.0;
   float core = exp(-across * across * 18.0);
   float fall = 1.0 - smoothstep(0.55, 1.0, vUv.y);
-  gl_FragColor = vec4(uColor * uIntensity * core * fall, 1.0);
+  // A laser plane passing right by the lens would fill the frame: fade it.
+  float near = smoothstep(1.5, 5.0, vCamDist);
+  gl_FragColor = vec4(uColor * uIntensity * core * fall * near, 1.0);
 }
 `;
 
@@ -189,7 +204,7 @@ export class LightRig {
       for (let i = 0; i < n; i++) {
         const mat = new THREE.ShaderMaterial({
           uniforms: { uColor: { value: new THREE.Color() }, uIntensity: { value: 0 } },
-          vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+          vertexShader: LASER_VERT,
           fragmentShader: LASER_FRAG,
           transparent: true,
           depthWrite: false,

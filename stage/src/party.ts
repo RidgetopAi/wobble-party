@@ -8,6 +8,7 @@ import { Crowd } from './crowd';
 import { CameraDirector } from './director/camera';
 import { ShowDirector } from './director/show';
 import { Music, type MusicEvent } from './music';
+import { NowPlaying } from './nowplaying';
 import { Post } from './post';
 import { ThemeState, type Palette } from './theme';
 import { Confetti, Haze } from './world/fx';
@@ -33,6 +34,7 @@ export class Party {
   readonly confetti: Confetti;
   readonly haze: Haze;
   readonly post: Post;
+  readonly nowPlaying: NowPlaying;
   time = 0;
   private pmrem: THREE.PMREMGenerator;
   private envScene = new THREE.Scene();
@@ -62,6 +64,7 @@ export class Party {
     this.haze = new Haze(p);
     this.cam = new CameraDirector(innerWidth / innerHeight, this.crowd);
     this.show = new ShowDirector(this.lights, this.u, this.crowd, this.confetti, this.cam);
+    this.nowPlaying = new NowPlaying(this.u);
     this.scene.add(this.venue.group, this.crowd.group, this.crowd.shadows, this.lights.group, this.confetti.mesh, this.haze.group);
 
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -150,6 +153,7 @@ export class Party {
     this.lights.update(dt, this.music, t, this.crowd.targets);
     this.confetti.update(dt);
     this.haze.update(t, this.music);
+    this.nowPlaying.update(dt, this.music);
     this.cam.update(dt, this.music, t);
 
     // Light themes: a daylight party. Additive atmosphere only adds white
