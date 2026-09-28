@@ -3,8 +3,16 @@
 
 use anyhow::{Context, Result};
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+
+// Fixed paths: never whatever `pw-record` happens to be first on PATH.
+const PW_RECORD: &str = "/usr/bin/pw-record";
+const FFMPEG: &str = "/usr/bin/ffmpeg";
+const CAT: &str = "/usr/bin/cat";
+/// A real AU header is 24-32 bytes; anything past this is not a header.
+const MAX_AU_HEADER: usize = 4096;
 
 #[derive(Clone, Debug)]
 pub enum Source {
@@ -28,7 +36,7 @@ impl Source {
     pub fn open(&self) -> Result<Reader> {
         let mut cmd = match self {
             Source::Monitor => {
-                let mut c = Command::new("pw-record");
+                let mut c = Command::new(PW_RECORD);
                 c.args([
                     "-P",
                     "{ stream.capture.sink=true node.name=wobble-party-listen media.name=\"Wobble Party\" node.dont-reconnect=false }",
@@ -46,12 +54,12 @@ impl Source {
                 c
             }
             Source::Stdin => {
-                let mut c = Command::new("cat");
+                let mut c = Command::new(CAT);
                 c.stdin(Stdio::inherit());
                 c
             }
             Source::File { path, realtime } => {
-                let mut c = Command::new("ffmpeg");
+                let mut c = Command::new(FFMPEG);
                 c.args(["-v", "error", "-nostdin"]);
                 if *realtime {
                     c.arg("-re");
@@ -61,6 +69,19 @@ impl Source {
                 c
             }
         };
+        // If the brain dies without running Drop (SIGKILL, crash), the kernel
+        // kills the recorder too instead of leaving it capturing audio. (The
+        // signal follows the spawning thread; the analysis thread lives as
+        // long as the process.)
+        // SAFETY: prctl is async-signal-safe; nothing else runs between fork and exec.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
         let child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -111,6 +132,9 @@ fn skip_au_header(r: &mut impl Read) -> Result<Option<[u8; 8]>> {
         b"dns." => u32::from_le_bytes([head[4], head[5], head[6], head[7]]),
         _ => return Ok(Some(head)),
     } as usize;
+    if !(8..=MAX_AU_HEADER).contains(&offset) {
+        anyhow::bail!("audio stream header claims {offset} bytes");
+    }
     let mut rest = vec![0u8; offset.saturating_sub(8)];
     r.read_exact(&mut rest)?;
     Ok(None)

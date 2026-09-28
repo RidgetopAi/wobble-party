@@ -2,9 +2,10 @@
 //! updates over a WebSocket at `/ws`.
 
 use crate::analysis::Analyzer;
+use crate::limits::{self, KIB, MIB};
 use crate::nowplaying::{self, SharedArt};
 use crate::source::Source;
-use crate::theme;
+use crate::{guard, theme};
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -12,6 +13,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::Value;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,12 +70,13 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
         None => app.fallback(embedded),
     };
-    let app = app.with_state(state);
+    // Every route, static files included, sits behind the Host/Origin/peer guard.
+    let app = app.layer(axum::middleware::from_fn(guard::check)).with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", opts.port)).await?;
     eprintln!("wobble-brain: listening on http://127.0.0.1:{}", opts.port);
     let idle = opts.exit_when_idle;
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {}
@@ -175,7 +178,8 @@ async fn watch_theme(tx: watch::Sender<Arc<str>>) {
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| client(socket, state))
+    // The stage only ever sends small stats messages.
+    ws.max_message_size(16 * KIB as usize).max_frame_size(16 * KIB as usize).on_upgrade(move |socket| client(socket, state))
 }
 
 async fn client(socket: WebSocket, state: AppState) {
@@ -225,7 +229,7 @@ async fn serve_client(mut socket: WebSocket, state: &AppState) {
                 // The stage reports its frame rate; log it for diagnosis.
                 Some(Ok(Message::Text(t))) => {
                     if t.contains("\"stats\"") {
-                        eprintln!("wobble-brain: stage {t}");
+                        eprintln!("wobble-brain: stage {}", limits::clip(&t, 300));
                     }
                 }
                 Some(Ok(_)) => {}
@@ -235,23 +239,14 @@ async fn serve_client(mut socket: WebSocket, state: &AppState) {
     }
 }
 
+/// The current Omarchy wallpaper (a symlink Omarchy maintains), if it is an
+/// image of sane size.
 async fn background() -> Response {
     let path = theme::background_path();
-    match tokio::fs::read(&path).await {
-        Ok(bytes) => {
-            let mime = match path
-                .canonicalize()
-                .ok()
-                .and_then(|p| p.extension().map(|e| e.to_string_lossy().to_lowercase()))
-                .as_deref()
-            {
-                Some("png") => "image/png",
-                Some("webp") => "image/webp",
-                _ => "image/jpeg",
-            };
-            ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-store")], bytes).into_response()
-        }
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    let read = tokio::task::spawn_blocking(move || limits::read_file(&path, 64 * MIB, false, false)).await;
+    match read.ok().flatten().and_then(|b| limits::image_mime(&b).map(|m| (b, m))) {
+        Some((bytes, mime)) => ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "no-store")], bytes).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 

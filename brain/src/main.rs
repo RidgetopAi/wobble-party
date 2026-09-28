@@ -1,5 +1,7 @@
 mod analysis;
 mod frame;
+mod guard;
+mod limits;
 mod nowplaying;
 mod server;
 mod source;
