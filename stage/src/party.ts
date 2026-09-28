@@ -41,9 +41,10 @@ export class Party {
   private envDirty = true;
   private fog: THREE.FogExp2;
   private envDisabled = false;
+  private hazeHidden = false;
 
   constructor(
-    renderer: THREE.WebGLRenderer,
+    private renderer: THREE.WebGLRenderer,
     palette: Palette,
     opts: PartyOptions,
   ) {
@@ -72,7 +73,16 @@ export class Party {
       this.envDirty = true;
     });
     this.music.on((e) => this.onMusic(e));
+    // Timing probe: every landing, with the dance-beat position it hit.
+    for (const w of this.crowd.all) {
+      w.rig.onLand = (speed) => {
+        if (this.landings.length < 20000) this.landings.push({ t: this.time, beat: this.music.danceBeatPos, speed, bpm: this.music.danceBpm });
+      };
+    }
   }
+
+  /** Landing log for timing analysis (tools/timing.mjs). */
+  readonly landings: { t: number; beat: number; speed: number; bpm: number }[] = [];
 
   /** A little "club" for reflections: coloured light panels around a dark room. */
   private buildEnvScene() {
@@ -101,7 +111,7 @@ export class Party {
     const old = this.scene.environment;
     this.scene.environment = this.pmrem.fromScene(this.envScene, 0.03).texture;
     old?.dispose();
-    this.scene.environmentIntensity = this.theme.p.light ? 0.9 : 0.55;
+    this.scene.environmentIntensity = this.theme.p.light ? 0.5 : 0.55;
   }
 
   private onMusic(e: MusicEvent) {
@@ -115,7 +125,7 @@ export class Party {
     if (names.has('lasers')) this.lights.hideLasers = true;
     if (names.has('beams')) for (const h of this.lights.heads) h.beam.visible = false;
     if (names.has('spots')) for (const s of this.lights.spots) s.visible = false;
-    if (names.has('haze')) this.haze.group.visible = false;
+    if (names.has('haze')) this.hazeHidden = true;
     if (names.has('crowd')) this.crowd.group.visible = false;
     if (names.has('bloom')) this.post.bloom.enabled = false;
     if (names.has('rim')) this.lights.rim.visible = false;
@@ -142,8 +152,12 @@ export class Party {
     this.haze.update(t, this.music);
     this.cam.update(dt, this.music, t);
 
+    // Light themes: a daylight party. Additive atmosphere only adds white
+    // in a bright room, so haze goes, fog nearly goes, exposure comes down.
     this.fog.color.copy(p.bgDeep);
-    this.fog.density = p.light ? 0.008 : 0.016;
+    this.fog.density = p.light ? 0.0025 : 0.016;
+    this.haze.group.visible = !p.light && !this.hazeHidden;
+    this.renderer.toneMappingExposure = p.light ? 0.82 : 1.05;
     this.envTimer -= dt;
     if (this.envDirty && this.envTimer <= 0 && !this.envDisabled) {
       this.rebuildEnv();

@@ -224,8 +224,8 @@ export class LightRig {
     // Ambient / key / rim from theme.
     this.hemi.color.copy(p.lights[0]).lerp(new THREE.Color(1, 1, 1), 0.6);
     this.hemi.groundColor.copy(p.bgDeep);
-    this.hemi.intensity = p.light ? 1.3 : 0.55 + 0.25 * pres;
-    this.key.intensity = p.light ? 1.6 : 0.75;
+    this.hemi.intensity = p.light ? 0.8 : 0.55 + 0.25 * pres;
+    this.key.intensity = p.light ? 1.2 : 0.75;
     this.rim.color.copy(p.lights[1 % p.lights.length]);
     this.rim.intensity = 0.9 + 0.8 * music.kickPulse * pres + 0.5 * hype;
 
@@ -292,7 +292,7 @@ export class LightRig {
       h.yoke.rotation.set(h.tilt, h.pan, 0, 'YXZ');
       const c = p.lights[(h.colorIdx + this.colorShift) % 6];
       h.mat.uniforms.uColor.value.copy(c);
-      h.mat.uniforms.uIntensity.value = h.intensity * (p.light ? 0.12 : 0.28);
+      h.mat.uniforms.uIntensity.value = h.intensity * (p.light ? 0.05 : 0.28);
       h.mat.uniforms.uTime.value = time;
       h.lens.color.copy(c).multiplyScalar(0.5 + 3 * h.intensity);
     });
@@ -332,7 +332,7 @@ export class LightRig {
       l.mesh.rotateX(-pitch);
       const flick = 0.75 + 0.25 * Math.exp(-bp * 6) + 0.3 * music.hatPulse;
       l.mat.uniforms.uColor.value.copy(p.lights[(l.i + this.colorShift + l.src) % 6]);
-      l.mat.uniforms.uIntensity.value = this.laserLevel * flick * (p.light ? 0.8 : 1.6);
+      l.mat.uniforms.uIntensity.value = this.laserLevel * flick * (p.light ? 0.5 : 1.6);
     }
 
     // Strobe: only at peaks, on beats, never more than 3 flashes/s.

@@ -17,6 +17,8 @@ const WIN: usize = 2048;
 const VOCAL_WIN: usize = 4096;
 const RING: usize = VOCAL_WIN;
 const SILENCE_DB: f32 = -62.0;
+/// Minimum share of 30-16k Hz power below 120 Hz for an onset to count as a kick.
+const KICK_SHARE: f32 = 0.3;
 
 const BAND_EDGES: [(f32, f32); 6] = [
     (20.0, 60.0),
@@ -52,6 +54,7 @@ pub struct Analyzer {
     mel: mel::Mel,
     net: Option<net::VocalNet>,
     silent_frames: usize,
+    reported_nan: bool,
     pub emit_features: bool,
     /// When set, every hop's network input features are appended here.
     pub mel_sink: Option<Vec<f32>>,
@@ -97,6 +100,7 @@ impl Analyzer {
             mel: mel::Mel::new(WIN, SAMPLE_RATE, FPS),
             net: net::VocalNet::embedded().filter(|n| n.n_inputs() == mel::N_FEAT),
             silent_frames: 0,
+            reported_nan: false,
             emit_features: false,
             mel_sink: None,
         }
@@ -148,6 +152,10 @@ impl Analyzer {
             bands[i] = self.band_smooth[i].update(v);
         }
         let level = self.level_smooth.update(if silent { 0.0 } else { self.level_range.update(rms_db) });
+        if !level.is_finite() && !self.reported_nan {
+            self.reported_nan = true;
+            eprintln!("wobble-brain: non-finite level at t={t:.3}: rms_db={rms_db} silent={silent} range={:?}", self.level_range);
+        }
 
         // Brightness: spectral centroid on a log scale 200 Hz..8 kHz.
         let (mut num, mut den) = (0.0, 0.0);
@@ -176,13 +184,21 @@ impl Analyzer {
         }
         let flux_n = if silent { 0.0 } else { self.flux_scale.update(flux) };
         let onset = self.onset_pick.update(flux);
-        let kick = self.kick_pick.update(low);
+        // A kick is a low transient that dominates the mix's energy below
+        // 120 Hz; voices and bass lines rarely do. Without the share gate the
+        // picker fires on any low-harmonic onset (4-5/s even on a cappellas).
+        let (k30, k120) = (hz_to_bin(30.0, bin_hz), hz_to_bin(120.0, bin_hz));
+        let low_p: f32 = mag[k30..=k120].iter().map(|m| m * m).sum();
+        let all_p: f32 = mag[k30..=k_high.min(mag.len() - 1)].iter().map(|m| m * m).sum::<f32>().max(1e-12);
+        let low_share = low_p / all_p;
+        let kick_raw = self.kick_pick.update(low);
+        let kick = if low_share > KICK_SHARE { kick_raw } else { 0.0 };
         let snare = self.snare_pick.update(mid);
         let hat = self.hat_pick.update(high);
         let low_n = self.kick_scale.update(low);
 
         let b = self.beat.update(flux_n, low_n, silent);
-        let s = self.sections.update(level, bands[1], bands[5], onset, self.beat.confidence);
+        let s = self.sections.update(level, bands[0], bands[1], bands[5], onset, kick, self.beat.confidence);
 
         let (vl, vr): (Vec<f32>, Vec<f32>) = (
             window(self.write, VOCAL_WIN, &self.ring_l).collect(),

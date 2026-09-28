@@ -30,9 +30,11 @@ pub struct Sections {
     high_long: Follower,
     hist: VecDeque<(f32, f32)>, // (energy short, bass short)
     onsets: VecDeque<bool>,
+    kicks: VecDeque<bool>,
     density: Follower,
     build: Follower,
     since_drop: usize,
+    since_build: usize,
     section: u8,
     section_hold: usize,
     peak_left: usize,
@@ -51,18 +53,20 @@ impl Sections {
             high_long: Follower::new(6.0, 6.0, fps),
             hist: VecDeque::new(),
             onsets: VecDeque::new(),
+            kicks: VecDeque::new(),
             density: Follower::new(0.5, 1.0, fps),
             build: Follower::new(1.0, 0.4, fps),
             since_drop: usize::MAX / 2,
+            since_build: usize::MAX / 2,
             section: GROOVE,
             section_hold: 0,
             peak_left: 0,
         }
     }
 
-    /// `level`: normalised loudness. `bass`/`high`: normalised band levels.
+    /// `level`: normalised loudness. `sub`/`bass`/`high`: normalised band levels.
     /// `onset`: onset event strength this frame (0 if none).
-    pub fn update(&mut self, level: f32, bass: f32, high: f32, onset: f32, beat_conf: f32) -> SectionOut {
+    pub fn update(&mut self, level: f32, sub: f32, bass: f32, high: f32, onset: f32, kick: f32, beat_conf: f32) -> SectionOut {
         let fast = self.fast.update(level);
         let e = self.short.update(level);
         let el = self.long.update(level);
@@ -70,6 +74,13 @@ impl Sections {
         let bl = self.bass_long.update(bass);
         let hs = self.high_short.update(high);
         let hl = self.high_long.update(high);
+
+        // Kicks in the last 4 s: a drop needs drums, not just a loud voice.
+        self.kicks.push_back(kick > 0.0);
+        while self.kicks.len() > 4 * self.fps as usize {
+            self.kicks.pop_front();
+        }
+        let recent_kicks = self.kicks.iter().filter(|&&k| k).count();
 
         // Onset density: events per second over the last 2 s, scaled to 0..1.
         self.onsets.push_back(onset > 0.0);
@@ -80,7 +91,7 @@ impl Sections {
         let density = self.density.update((per_sec / 8.0).min(1.0));
 
         self.hist.push_back((e, bs));
-        let hist_len = (4.0 * self.fps) as usize;
+        let hist_len = (7.0 * self.fps) as usize;
         if self.hist.len() > hist_len {
             self.hist.pop_front();
         }
@@ -88,8 +99,10 @@ impl Sections {
         // Build: brightness and density rising while the low end is held back.
         let rising_high = ((hs - hl) * 3.0).clamp(0.0, 1.0);
         let bass_held = ((bl - bs) * 2.5 + 0.3).clamp(0.0, 1.0);
-        let slope = if self.hist.len() == hist_len {
-            let first: f32 = self.hist.iter().take(hist_len / 4).map(|h| h.0).sum::<f32>() / (hist_len / 4) as f32;
+        let win = (4.0 * self.fps) as usize;
+        let slope = if self.hist.len() >= win {
+            let q = win / 4;
+            let first: f32 = self.hist.iter().skip(self.hist.len() - win).take(q).map(|h| h.0).sum::<f32>() / q as f32;
             ((e - first) * 3.0).clamp(0.0, 1.0)
         } else {
             0.0
@@ -97,20 +110,30 @@ impl Sections {
         let build_raw = (rising_high * 0.4 + slope * 0.4 + density * 0.2) * bass_held;
         let build = self.build.update(build_raw);
 
-        // Drop: bass slams back after being low, with a jump in loudness.
+        // Drop: a sustained energy step — a quiet stretch (breakdown/build)
+        // followed by the full mix with low end slamming in. Rare by design.
         self.since_drop = self.since_drop.saturating_add(1);
-        let min_bass_recent = self.hist.iter().map(|h| h.1).fold(1.0f32, f32::min);
-        let min_energy_recent = self.hist.iter().map(|h| h.0).fold(1.0f32, f32::min);
+        self.since_build = if self.section == BUILD { 0 } else { self.since_build.saturating_add(1) };
+        let n = self.hist.len();
+        let pre_end = n.saturating_sub((0.6 * self.fps) as usize);
+        let pre = &self.hist.make_contiguous()[..pre_end];
         let mut drop = 0.0;
-        if self.since_drop as f32 > 6.0 * self.fps
-            && bass > 0.65
-            && min_bass_recent < 0.3
-            && fast - min_energy_recent > 0.3
-            && beat_conf > 0.15
-        {
-            drop = ((fast - min_energy_recent) * 1.5).clamp(0.4, 1.0);
-            self.since_drop = 0;
-            self.peak_left = (16.0 * self.fps) as usize;
+        if pre.len() as f32 > 4.0 * self.fps {
+            let pre_energy = pre.iter().map(|h| h.0).sum::<f32>() / pre.len() as f32;
+            let after_build = (self.since_build as f32) < 4.0 * self.fps;
+            let jump_min = if after_build { 0.25 } else { 0.35 };
+            if self.since_drop as f32 > 16.0 * self.fps
+                && beat_conf > 0.5
+                && pre_energy < 0.42
+                && fast > 0.6
+                && fast - pre_energy > jump_min
+                && (bs > 0.5 || sub > 0.5)
+                && recent_kicks >= 3
+            {
+                drop = ((fast - pre_energy) * 1.6).clamp(0.5, 1.0);
+                self.since_drop = 0;
+                self.peak_left = (16.0 * self.fps) as usize;
+            }
         }
 
         let calm = ((0.45 - el) * 2.5).clamp(0.0, 1.0).max(((0.3 - density) * 2.0).clamp(0.0, 1.0) * (1.0 - e));

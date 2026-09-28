@@ -211,15 +211,17 @@ export class Dancer {
     const breathe = 0.018 * Math.sin(time * 1.7 + p.lag * 40) * (1 - pres);
     rig.stretch.target = 1 - A * land + A * 0.4 + 0.12 * build * pres + 0.1 * music.pitch * music.vocal * p.singer + breathe - 0.04 * music.calm;
 
-    // Hops that land on the beat.
-    const air = Math.min(0.3, 0.42 * beatDur);
+    // Hops that land on the beat. Height scales with hype via the airtime;
+    // the take-off speed is solved from the time actually left until the
+    // beat, so landings are exact regardless of frame timing.
+    const air = Math.min(0.3, 0.42 * beatDur) * (0.6 + 0.4 * clamp(h));
     const takeoff = 1 - air / beatDur;
     const beatIdx = Math.floor(beats);
     if (pres > 0.5 && this.lastPhase < takeoff && ph >= takeoff && !rig.airborne && this.hoppedBeat !== beatIdx) {
       const every = this.hopEveryBeat || (h * p.bounce > 0.75 && music.section === Section.Peak);
       const onDown = (beatIdx + 1) % 2 === 0 && h * p.jumpy > 0.35;
       if (every || onDown) {
-        rig.hop(Rig.hopSpeed(air) * (0.6 + 0.4 * h));
+        rig.hop(Rig.hopSpeed((1 - ph) * beatDur));
         this.hoppedBeat = beatIdx;
       }
     }

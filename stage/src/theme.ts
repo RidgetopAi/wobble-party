@@ -87,7 +87,7 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
   if (mono) {
     const base = [fg, accent, parse(col.bright_foreground ?? col.foreground, '#fff'), parse(col.light_foreground ?? col.foreground, '#ddd')];
     for (let i = 0; i < N_LIGHTS; i++) {
-      lights.push(withHSL(base[i % base.length], (h, s) => [h, s * 0.3, 0.55 + 0.35 * ((i * 0.37) % 1)]));
+      lights.push(withHSL(base[i % base.length], (h, s) => [h, s * 0.3, 0.42 + 0.26 * ((i * 0.37) % 1)]));
     }
   } else {
     const sorted = [...vivid].sort((a, b) => sat(b) - sat(a));
@@ -111,7 +111,7 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
   const crowd: THREE.Color[] = [];
   for (let i = 0; i < N_CROWD; i++) {
     if (mono) {
-      const l = [0.12, 0.85, 0.5, 0.25, 0.7, 0.4, 0.93, 0.18, 0.6, 0.32][i];
+      const l = [0.1, 0.78, 0.46, 0.22, 0.64, 0.36, 0.86, 0.16, 0.55, 0.3][i];
       crowd.push(new THREE.Color().setHSL(0, 0, l));
     } else {
       const src = (vivid.length ? vivid : cands)[i % Math.max(1, vivid.length || cands.length)];

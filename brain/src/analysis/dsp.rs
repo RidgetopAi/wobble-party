@@ -99,7 +99,7 @@ impl Follower {
 ///
 /// Tracks a slow floor and a peak with slow release so that the output uses
 /// the full 0..1 range regardless of master volume or mastering loudness.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AutoRange {
     floor: f32,
     peak: f32,
@@ -124,6 +124,9 @@ impl AutoRange {
     }
 
     pub fn update(&mut self, db: f32) -> f32 {
+        if !db.is_finite() {
+            return 0.0;
+        }
         if !self.primed && db > -90.0 {
             self.floor = db - self.min_range;
             self.peak = db;

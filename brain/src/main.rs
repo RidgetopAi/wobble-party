@@ -18,7 +18,8 @@ USAGE:
 
   wobble-brain analyze PATH [--out FILE.jsonl] [--features]
       Analyse a file offline (as fast as possible) and write one JSON frame
-      per line. --features adds the vocal feature vector (`vf`).
+      per line. --features adds the vocal feature vector (`vf`). PATH `-`
+      reads raw f32le stereo 48 kHz from stdin.
 
   wobble-brain features
       Read raw f32le stereo 48 kHz on stdin, write the vocal network's input
@@ -50,7 +51,8 @@ fn main() -> Result<()> {
         }
         "analyze" => {
             let path = args.get(1).context("analyze needs a PATH")?;
-            let src = source::Source::File { path: path.into(), realtime: false };
+            // `-` reads raw f32le stereo 48 kHz from stdin (e.g. a pw-record capture).
+            let src = if path == "-" { source::Source::Stdin } else { source::Source::File { path: path.into(), realtime: false } };
             let mut reader = src.open()?;
             let out: Box<dyn Write> = match value("--out") {
                 Some(p) => Box::new(std::fs::File::create(p)?),
