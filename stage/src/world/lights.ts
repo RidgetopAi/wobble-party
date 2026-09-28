@@ -307,7 +307,9 @@ export class LightRig {
       h.yoke.rotation.set(h.tilt, h.pan, 0, 'YXZ');
       const c = p.lights[(h.colorIdx + this.colorShift) % 6];
       h.mat.uniforms.uColor.value.copy(c);
-      h.mat.uniforms.uIntensity.value = h.intensity * (p.light ? 0.05 : 0.28);
+      // Mono dark themes are a black-and-white club carried by white light in
+      // haze, so the beams get much more presence there.
+      h.mat.uniforms.uIntensity.value = h.intensity * (p.light ? 0.05 : p.mono ? 0.6 : 0.28);
       h.mat.uniforms.uTime.value = time;
       h.lens.color.copy(c).multiplyScalar(0.5 + 3 * h.intensity);
     });

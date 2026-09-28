@@ -63,6 +63,8 @@ export class Dancer {
   protected hoppedBeat = -1;
   /** Seconds the camera wants this one to look at it. */
   lookAtCamera = 0;
+  /** Belt/emblem glow scale (0 in light themes, where glow reads as smudges). */
+  glowScale = 1;
 
   constructor(
     public w: Wobbler,
@@ -373,7 +375,7 @@ export class Dancer {
     e.blush = 0.45 + 0.4 * clamp(h);
     e.lookX = this.glanceUntil > 0 ? this.glance : 0;
     e.lookY = 0.3 * music.pitch * music.vocal;
-    e.glowBelt = 0.25 * music.hype + 1.1 * music.kickPulse * music.presence;
-    e.glowEmblem = 0.2 * music.hype + 0.7 * music.snarePulse * music.presence;
+    e.glowBelt = (0.25 * music.hype + 1.1 * music.kickPulse * music.presence) * this.glowScale;
+    e.glowEmblem = (0.2 * music.hype + 0.7 * music.snarePulse * music.presence) * this.glowScale;
   }
 }

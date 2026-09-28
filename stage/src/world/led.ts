@@ -95,7 +95,11 @@ void main() {
   }
   col += uLights[1] * 0.05 * uDrop;
   vec3 base = uBg * 0.6 + 0.012;
-  gl_FragColor = vec4((base + col * uGain) * (0.25 + 0.75 * dotMask), 1.0);
+  vec3 lit = (base + col * uGain) * (0.25 + 0.75 * dotMask);
+  // Ink mode: e-paper LEDs — dark dots on a pale panel.
+  float lum = smoothstep(0.015, 0.14, dot(col * uGain, vec3(0.3, 0.59, 0.11)));
+  vec3 paper = mix(vec3(0.86), vec3(0.04), lum * dotMask);
+  gl_FragColor = vec4(mix(lit, paper, uInk), 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -153,8 +157,10 @@ export function floorMaterial(u: ShowUniforms, base: THREE.Color): THREE.MeshSta
           float checker = mod(id.x + id.y + floor(uBeatPos), 2.0) * smoothstep(0.75, 1.0, uHype) * (0.2 + 0.8 * exp(-uBeat * 5.0));
           float glow = (ripple * 0.9 + sparkle * 1.0 + checker * 0.35) * uPresence + 0.015;
           glow *= smoothstep(26.0, 6.0, d);
-          totalEmissiveRadiance += tc * glow * tile * 0.7;
-          totalEmissiveRadiance += uLights[0] * gap * 0.05 * (0.4 + uHype);
+          // Ink mode draws the pattern by darkening tiles instead of lighting them.
+          totalEmissiveRadiance += tc * glow * tile * 0.7 * (1.0 - uInk);
+          totalEmissiveRadiance += uLights[0] * gap * 0.05 * (0.4 + uHype) * (1.0 - uInk);
+          diffuseColor.rgb *= 1.0 - uInk * clamp(glow * 1.6 * tile + gap * 0.5, 0.0, 0.85);
         }`,
       );
   };

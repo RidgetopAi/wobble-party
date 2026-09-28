@@ -18,6 +18,9 @@ export interface Palette {
   name: string;
   light: boolean; // light-mode theme
   mono: boolean; // theme has (almost) no saturated colours
+  /** Light + mono ("black ink on white paper", e.g. white): nothing can glow,
+   *  so signs, LEDs and floor are drawn in ink instead of light. */
+  ink: boolean;
   bg: THREE.Color;
   bgDeep: THREE.Color;
   fg: THREE.Color;
@@ -130,7 +133,8 @@ export function paletteFrom(msg: Pick<ThemeMessage, 'name' | 'colors'>): Palette
   const neon = lights[1 % lights.length].clone();
   const neon2 = lights[0].clone();
 
-  return { name: msg.name, light, mono, bg, bgDeep, fg, accent, neon, neon2, metal, floor, haze, lights, crowd, outfit };
+  const ink = light && mono;
+  return { name: msg.name, light, mono, ink, bg, bgDeep, fg, accent, neon, neon2, metal, floor, haze, lights, crowd, outfit };
 }
 
 /** Holds the live palette and cross-fades it toward new themes. */
@@ -171,6 +175,7 @@ export class ThemeState {
       p.name = t.name;
       p.light = t.light;
       p.mono = t.mono;
+      p.ink = t.ink;
     }
     if (this.fade >= 1) this.target = p;
     for (const l of this.listeners) l(p);

@@ -254,7 +254,9 @@ export class Venue {
 
   /** Walls around the dance floor with neon shapes (seen in reverse shots). */
   private buildHouse() {
-    const wallMat = new THREE.MeshStandardMaterial({ color: this.palette.bgDeep, roughness: 0.9 });
+    // Walls take the theme background: in light themes the room becomes a
+    // seamless paper studio instead of a flat grey slab.
+    const wallMat = new THREE.MeshBasicMaterial({ color: this.palette.bgDeep, fog: true });
     wallMat.color = this.palette.bgDeep;
     const back = new THREE.Mesh(new THREE.PlaneGeometry(60, 16), wallMat);
     back.position.set(0, 8, 22);
@@ -352,10 +354,12 @@ export class Venue {
     const push = 1 + 0.25 * music.kickPulse + 0.12 * music.bass;
     for (const c of this.cones) c.scale.set(push, 1, push);
     // Neon breathes with the vocal and flares on drops.
+    // Ink mode (mono light theme): nothing glows; signs read as black lettering.
+    const glow = this.palette.ink ? 0 : 1;
     for (const [i, m] of this.neonMats.entries()) {
-      m.emissiveIntensity = 2.0 + 0.6 * music.hype + 1.2 * music.dropPulse + (i % 2 === 0 ? 0.6 * music.kickPulse : 0.6 * music.snarePulse);
+      m.emissiveIntensity = glow * (2.0 + 0.6 * music.hype + 1.2 * music.dropPulse + (i % 2 === 0 ? 0.6 * music.kickPulse : 0.6 * music.snarePulse));
     }
-    for (const m of this.faceMats) m.emissiveIntensity = 0.22 + 0.25 * music.vocal + 0.3 * music.dropPulse;
+    for (const m of this.faceMats) m.emissiveIntensity = glow * (0.22 + 0.25 * music.vocal + 0.3 * music.dropPulse);
     for (const f of this.faders) f.position.z = 0.1 + 0.12 * Math.sin(time * 0.7 + f.position.x * 20);
   }
 }

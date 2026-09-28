@@ -161,6 +161,7 @@ export class Party {
 
     // Light themes: a daylight party. Additive atmosphere only adds white
     // in a bright room, so haze goes, fog nearly goes, exposure comes down.
+    for (const d of this.crowd.dancers) d.glowScale = p.light ? 0 : 1;
     this.fog.color.copy(p.bgDeep);
     this.fog.density = p.light ? 0.0025 : 0.016;
     this.haze.group.visible = !p.light && !this.hazeHidden;

@@ -25,6 +25,7 @@ export interface ShowUniforms {
   uLights: { value: THREE.Color[] };
   uBg: { value: THREE.Color };
   uLightMode: { value: number }; // 0 dark theme, 1 light theme
+  uInk: { value: number }; // 1 = ink mode (mono light theme)
   /** LED wall programme: current + previous, crossfade. */
   uMode: { value: number };
   uModePrev: { value: number };
@@ -57,6 +58,7 @@ export function createShowUniforms(p: Palette): ShowUniforms {
     uLights: { value: p.lights },
     uBg: { value: p.bgDeep },
     uLightMode: { value: 0 },
+    uInk: { value: 0 },
     uMode: { value: 0 },
     uModePrev: { value: 0 },
     uModeMix: { value: 1 },
@@ -91,6 +93,7 @@ export function updateShowUniforms(u: ShowUniforms, m: Music, p: Palette, time: 
   const k = u.uKicks.value;
   k.set(k.x + dt, k.y + dt, k.z + dt, k.w + dt);
   u.uLightMode.value = p.light ? 1 : 0;
+  u.uInk.value += ((p.ink ? 1 : 0) - u.uInk.value) * Math.min(1, dt * 3);
   u.uModeMix.value = Math.min(1, u.uModeMix.value + dt / 0.8);
 }
 
@@ -124,6 +127,7 @@ uniform vec4 uKicks;
 uniform vec3 uLights[6];
 uniform vec3 uBg;
 uniform float uLightMode;
+uniform float uInk;
 uniform float uMode;
 uniform float uModePrev;
 uniform float uModeMix;
