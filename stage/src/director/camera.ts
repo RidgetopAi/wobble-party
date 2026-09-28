@@ -26,6 +26,18 @@ interface Shot {
 
 const DJ_HEAD = new THREE.Vector3(0, STAGE_Y + 1.25, DJ_Z);
 
+/**
+ * Shots are composed for 16:9. In a narrower window (a tiled half-screen or
+ * portrait tile in Hyprland) widen the vertical FOV so the horizontal
+ * coverage stays the same instead of cropping the stage.
+ */
+function fitFov(vfov: number, aspect: number) {
+  const design = 16 / 9;
+  if (aspect >= design) return vfov;
+  const h = Math.tan(THREE.MathUtils.degToRad(vfov) / 2) * design;
+  return Math.min(100, THREE.MathUtils.radToDeg(2 * Math.atan(h / aspect)));
+}
+
 export class CameraDirector {
   readonly camera: THREE.PerspectiveCamera;
   current: Shot;
@@ -249,7 +261,7 @@ export class CameraDirector {
     this.fovPunch *= Math.exp(-dt * 3);
     this.camera.position.copy(eye);
     this.camera.lookAt(target);
-    this.camera.fov = fov - 6 * this.fovPunch;
+    this.camera.fov = fitFov(fov - 6 * this.fovPunch, this.camera.aspect);
     this.camera.updateProjectionMatrix();
   }
 }

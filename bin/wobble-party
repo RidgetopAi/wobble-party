@@ -28,6 +28,18 @@ window() {
   hyprctl clients -j 2>/dev/null | jq -r --arg re "$CLASS_RE" 'first(.[] | select(.class | test($re)) | .address) // empty'
 }
 
+# Hyprland 0.56 (Omarchy 4) takes Lua after `hyprctl dispatch`; older builds
+# take the classic dispatcher. Try Lua first, fall back — as Omarchy does.
+focus_window() {
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" >/dev/null 2>&1 ||
+    hyprctl dispatch focuswindow "address:$1" >/dev/null
+}
+
+close_window() {
+  hyprctl dispatch "hl.dsp.window.close({ window = \"address:$1\" })" >/dev/null 2>&1 ||
+    hyprctl dispatch closewindow "address:$1" >/dev/null
+}
+
 brain_up() {
   curl -fs -m 1 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1
 }
@@ -66,7 +78,7 @@ open_window() {
 case "${1:-open}" in
   open | start)
     if addr="$(window)" && [[ -n $addr ]]; then
-      hyprctl dispatch focuswindow "address:$addr" >/dev/null
+      focus_window "$addr"
       exit 0
     fi
     start_brain
@@ -74,7 +86,7 @@ case "${1:-open}" in
     ;;
   toggle)
     if addr="$(window)" && [[ -n $addr ]]; then
-      hyprctl dispatch closewindow "address:$addr" >/dev/null
+      close_window "$addr"
     else
       start_brain
       open_window
@@ -82,7 +94,7 @@ case "${1:-open}" in
     ;;
   stop)
     if addr="$(window)" && [[ -n $addr ]]; then
-      hyprctl dispatch closewindow "address:$addr" >/dev/null
+      close_window "$addr"
     fi
     ;;
   status)
