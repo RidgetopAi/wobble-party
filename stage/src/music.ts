@@ -71,7 +71,9 @@ export class Music {
   flux = 0;
   vocal = 0;
   vocalEnv = 0;
-  /** Fast-decaying mouth signal: vocalEnv plus syllable pops. */
+  /** Slow floor of vocalEnv; the mouth rides on what rises above it. */
+  vocalFloor = 0;
+  /** Mouth opening, 0..1: pops open on each syllable and closes between. */
   mouth = 0;
   pitch = 0;
   build = 0;
@@ -175,7 +177,7 @@ export class Music {
       this.emit({ type: 'hat', strength: f.hat });
     }
     if (f.syllable > 0 && f.vocal > 0.45) {
-      this.syllablePulse = Math.max(this.syllablePulse, 0.5 + 0.5 * f.syllable);
+      this.syllablePulse = Math.max(this.syllablePulse, 0.6 + 0.4 * clamp(f.syllable * 1.5));
       this.emit({ type: 'syllable', strength: f.syllable });
     }
     if (f.drop > 0) {
@@ -221,6 +223,7 @@ export class Music {
       this.flux += (f.flux - this.flux) * r(25);
       this.vocal += (f.vocal - this.vocal) * r(12);
       this.vocalEnv += (f.vocalEnv - this.vocalEnv) * r(30);
+      this.vocalFloor += (this.vocalEnv - this.vocalFloor) * r(this.vocalEnv < this.vocalFloor ? 8 : 1.5);
       this.pitch += (f.pitch - this.pitch) * r(8);
       this.build += (f.build - this.build) * r(4);
       this.calm += (f.calm - this.calm) * r(3);
@@ -265,11 +268,15 @@ export class Music {
     this.hatPulse = decay(this.hatPulse, 14);
     this.beatPulse = decay(this.beatPulse, 6);
     this.dropPulse = decay(this.dropPulse, 0.7);
-    this.syllablePulse = decay(this.syllablePulse, 10);
+    this.syllablePulse = decay(this.syllablePulse, 12);
     this.sinceDrop += dt;
     if (this.inPhrase) this.phraseTime += dt;
 
-    this.mouth = clamp(Math.max(this.vocalEnv * 1.15, this.syllablePulse * 0.8 * this.vocal));
+    // vocalEnv sits high through a whole sung phrase, so it cannot drive the
+    // mouth directly: syllable pops open it, the rise over the floor holds notes.
+    const rise = clamp((this.vocalEnv - this.vocalFloor) / 0.15);
+    const gate = clamp((this.vocal - 0.35) / 0.3);
+    this.mouth = gate * clamp(0.06 + 0.3 * rise * rise + 0.9 * this.syllablePulse);
     const conf = clamp(this.beatConf * 1.6);
     const target = clamp(
       (0.25 + 0.75 * this.energy) * (0.35 + 0.65 * conf) * this.presence +

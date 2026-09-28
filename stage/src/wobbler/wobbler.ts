@@ -349,7 +349,7 @@ export class Wobbler {
     const targetR = Math.min(blink, closed, e.wink === 1 ? 0 : 1);
     this.eyeL = approach(this.eyeL, targetL, 30, dt);
     this.eyeR = approach(this.eyeR, targetR, 30, dt);
-    this.mouth = approach(this.mouth, e.mouth, e.mouth > this.mouth ? 40 : 18, dt);
+    this.mouth = approach(this.mouth, e.mouth, e.mouth > this.mouth ? 40 : 22, dt);
 
     const f = this.faceParams;
     f.face.set(this.eyeL, this.eyeR, clamp(this.mouth), e.smile);
