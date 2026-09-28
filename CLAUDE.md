@@ -25,6 +25,7 @@ Continuity lives in **backstory** (`~/.claude/skills/backstory/SKILL.md`):
 | `BarWidget.qml`, `manifest.json` | Omarchy bar widget (the wobbling wobbler) |
 | `packaging/` | install.sh (builds outside the plugin dir), desktop entry, icon, Hyprland rules |
 | `tools/` | feedback loops (see below) |
+| `tools/promo/` | promo video pipeline: cut A (X, 16:9, desktop opener) and cut B (vertical 9:16). Run from repo root except `opener.py` (from `out/promo`); outputs land in git-ignored `out/promo` |
 | `music/` | local test audio, git-ignored. `music/cc/tracks.tsv` = CC songs + BPM truth; `music/stems/` = training stems |
 
 ## Signal path (trace it, don't guess)

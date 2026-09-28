@@ -40,6 +40,9 @@ function keepOffStage(e: THREE.Vector3) {
 function fitFov(vfov: number, aspect: number) {
   const design = 16 / 9;
   if (aspect >= design) return vfov;
+  // Portrait: keep the square framing and crop the sides. Holding the full
+  // 16:9 width would leave the subject a sliver between floor and ceiling.
+  aspect = Math.max(aspect, 1);
   const h = Math.tan(THREE.MathUtils.degToRad(vfov) / 2) * design;
   return Math.min(100, THREE.MathUtils.radToDeg(2 * Math.atan(h / aspect)));
 }
