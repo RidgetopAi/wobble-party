@@ -4,8 +4,9 @@
 mixes of the Creative Commons stems below, all from [ccMixter](https://ccmixter.org). The audio is
 **not** redistributed here (`music/` is git-ignored); `tools/fetch_stems.py` re-downloads it.
 
-Most stems are licensed CC BY-NC; the model is a derivative of them and Wobble Party is a
-non-commercial project. Thank you to every artist below.
+Most stems are licensed CC BY-NC; the model is a derivative of them, so `vocal.bin` is
+distributed under CC BY-NC 4.0 (see [brain/model/LICENSE.md](../brain/model/LICENSE.md)), separately
+from the MIT code. Thank you to every artist below.
 
 | stem | title | artist | license |
 |---|---|---|---|

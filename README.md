@@ -30,7 +30,42 @@ wobble-party toggle             # open/close — bind it to a key:
 ```
 
 Optional Hyprland rules (float, size, opacity, no idle while fullscreen) are in
-[`packaging/hyprland/wobble-party.lua`](packaging/hyprland/wobble-party.lua).
+[`packaging/hyprland/wobble-party.lua`](packaging/hyprland/wobble-party.lua). They are not applied
+for you; copy them in if you want them.
+
+### Remove
+
+Installed as a plugin: run the uninstaller from the plugin folder first (it lives there), then
+remove the plugin.
+
+```bash
+~/.config/omarchy/plugins/ridgetopai.wobble-party/packaging/install.sh --uninstall
+omarchy plugin remove ridgetopai.wobble-party
+```
+
+The uninstaller removes only files it installed and that are unchanged (it records a SHA-256 of
+each). It leaves `~/.local/state/wobble-party` (logs and the party window's browser profile);
+delete that folder to remove those too.
+
+## What it does on your machine
+
+- **Installs** (no root, nothing outside your home): `~/.local/bin/wobble-party` and
+  `wobble-brain`, a desktop entry, an icon, and state in `~/.local/state/wobble-party/`. Installed as
+  a plugin, the build output goes to `~/.cache/wobble-party/target`, never inside the plugin folder. Needs `cargo`;
+  the installer never installs a toolchain or anything system-wide.
+- **Listens to audio** only while the party is open, from your default output's monitor with
+  `pw-record`, the same way a level meter does. Nothing is recorded to disk or sent anywhere;
+  the brain turns it into beat and loudness numbers.
+- **Serves the stage** on `127.0.0.1:7477` only. Requests must come from your own user (checked
+  per connection), with our loopback host names, so other websites and other users on the
+  machine cannot read what you are playing. It exits a few seconds after the window closes.
+- **Reads** the current Omarchy theme and wallpaper, and what your media player reports over
+  MPRIS (title, artist, cover art link) with `busctl`.
+- **Network:** the only outbound request is downloading the **cover art** URL your player reports
+  (e.g. Spotify's image CDN): public addresses only, no redirects, 8 MB cap, images only. Local
+  `file://` cover art is read only if it is an image file you own.
+- **Opens** a Chromium app window with its own profile (so the party stays out of your browser
+  session), or your default browser via `omarchy-launch-webapp` if Chromium is missing.
 
 ### Keys
 
@@ -95,10 +130,18 @@ Feedback loops in `tools/`:
 | `themes.mjs` | the same moment under every installed theme |
 | `shot.mjs`, `probe.mjs` | single-frame captures; live brain check |
 
+## License
+
+Code: [MIT](LICENSE). The singing-voice model `brain/model/vocal.bin` is **CC BY-NC 4.0**, because
+it was trained on mostly non-commercial Creative Commons stems ([details](brain/model/LICENSE.md)).
+Third-party material is listed in [NOTICE.md](NOTICE.md).
+
 ## Credits
 
 - Vocal model training data: Creative Commons stems from ccMixter — see
   [docs/TRAINING_DATA.md](docs/TRAINING_DATA.md).
 - Sign lettering: [Titan One](https://fonts.google.com/specimen/Titan+One) (SIL Open Font License).
+- The Omarchy wordmark on the LED wall is Omarchy's own [`logo.svg`](https://github.com/basecamp/omarchy/blob/e8d095c7874ec847f1317a70a74cd0c41a3df814/logo.svg)
+  (MIT), shown to celebrate the platform; the name and mark belong to the Omarchy project.
 - Built with [three.js](https://threejs.org), [axum](https://github.com/tokio-rs/axum),
   [rustfft](https://github.com/ejmahler/RustFFT).
