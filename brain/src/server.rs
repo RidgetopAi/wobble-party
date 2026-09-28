@@ -222,6 +222,12 @@ async fn serve_client(mut socket: WebSocket, state: &AppState) {
                 }
             }
             incoming = socket.recv() => match incoming {
+                // The stage reports its frame rate; log it for diagnosis.
+                Some(Ok(Message::Text(t))) => {
+                    if t.contains("\"stats\"") {
+                        eprintln!("wobble-brain: stage {t}");
+                    }
+                }
                 Some(Ok(_)) => {}
                 _ => return,
             },

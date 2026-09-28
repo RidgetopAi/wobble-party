@@ -195,6 +195,29 @@ async function startParty() {
   let fpsAcc = 0;
   let fpsN = 0;
   let fps = 0;
+  // Adaptive resolution: step the pixel ratio down when frames run slow,
+  // back up when there is headroom. Keeps weaker GPUs smooth.
+  const maxRatio = Math.min(devicePixelRatio, 1.5);
+  let ratio = maxRatio;
+  let slowFor = 0;
+  let fastFor = 0;
+  let statsT = 0;
+  const adapt = (dt: number) => {
+    if (capture || fps === 0) return;
+    if (fps < 48) slowFor += dt;
+    else slowFor = 0;
+    if (fps > 58) fastFor += dt;
+    else fastFor = 0;
+    let next = ratio;
+    if (slowFor > 3 && ratio > 0.6) next = Math.max(0.6, ratio - 0.2);
+    if (fastFor > 12 && ratio < maxRatio) next = Math.min(maxRatio, ratio + 0.2);
+    if (next !== ratio) {
+      ratio = next;
+      slowFor = fastFor = 0;
+      renderer.setPixelRatio(ratio);
+      onResize();
+    }
+  };
   renderer.setAnimationLoop(() => {
     if (params.has('frozen')) return;
     const now = performance.now();
@@ -207,6 +230,12 @@ async function startParty() {
     if (fpsAcc > 1) {
       fps = fpsN / fpsAcc;
       fpsAcc = fpsN = 0;
+    }
+    adapt(dt);
+    statsT += dt;
+    if (statsT > 5 && feed instanceof LiveFeed) {
+      statsT = 0;
+      feed.send({ type: 'stats', fps: Math.round(fps), ratio, w: innerWidth, h: innerHeight, quality });
     }
     if (feed instanceof LiveFeed) {
       hud.setStatus(

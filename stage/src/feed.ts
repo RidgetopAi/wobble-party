@@ -35,6 +35,12 @@ export interface Feed {
 export class LiveFeed implements Feed {
   connected = false;
   private queue: Frame[] = [];
+  private ws: WebSocket | null = null;
+
+  /** Send a small JSON message to the brain (stats). */
+  send(msg: object) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
   private retry = 0;
 
   constructor(
@@ -47,6 +53,7 @@ export class LiveFeed implements Feed {
 
   private open() {
     const ws = new WebSocket(this.url);
+    this.ws = ws;
     ws.onopen = () => {
       this.connected = true;
       this.retry = 0;
