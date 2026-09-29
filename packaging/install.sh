@@ -112,7 +112,7 @@ unplace() {
 }
 
 mkdir -p -m 700 -- "$STATE"
-[[ -d $STATE && ! -L $STATE ]] || die "$STATE is not a directory"
+[[ -d $STATE && ! -L $STATE && -O $STATE ]] || die "$STATE must be a directory you own, not a link"
 # mkdir -m only applies to a new directory; make an existing one private too.
 chmod 700 -- "$STATE"
 SKIPPED=0
