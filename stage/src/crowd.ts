@@ -1,10 +1,12 @@
 /**
  * Everyone on the floor: the DJ (behind the booth), front-row heroes and the
  * generated crowd. Places them, forwards music events to their dancers,
- * runs crowd-wide moves (waves) and applies theme colours.
+ * runs crowd-wide moves (waves) and applies theme colours. Also measures how
+ * much the crowd is moving (the activity readout) so tuning has numbers.
  */
 
 import * as THREE from 'three';
+import { onDials } from './dials';
 import { Section, type Music, type MusicEvent } from './music';
 import { clamp, Rng } from './rng';
 import type { Palette } from './theme';
@@ -138,6 +140,7 @@ export class Crowd {
   readonly targets: THREE.Vector3[] = [];
   private yawToStage = new Map<Dancer, number>();
   private rng = new Rng(2024);
+  private meter = new ActivityMeter();
 
   constructor(count: number, quality: 'high' | 'low', palette: Palette) {
     const djW = new Wobbler(djLook(), 1, quality);
@@ -180,10 +183,21 @@ export class Crowd {
     for (let i = 0; i < Math.min(count, spots.length); i++) {
       const [x, z] = spots[i];
       const w = new Wobbler(crowdLook(i + 1), 500 + i, i < 30 ? quality : 'low');
-      this.place(new Dancer(w, 500 + i), x, z);
+      const d = new Dancer(w, 500 + i);
+      d.crowd = true;
+      d.retune();
+      this.place(d, x, z);
       if (i % 3 === 0) this.targets.push(new THREE.Vector3(x, 0.8, z));
     }
     this.applyPalette(palette);
+    onDials(() => {
+      for (const d of this.dancers) d.retune();
+    });
+  }
+
+  /** Crowd, heroes and the yellow star-glasses hero (the reference dancer). */
+  activity(): Activity {
+    return this.meter.value;
   }
 
   private place(d: Dancer, x: number, z: number) {
@@ -233,5 +247,84 @@ export class Crowd {
       d.update(dt, { music, time, stageYaw: this.yawToStage.get(d)!, cameraYaw: cam });
       d.w.update(dt);
     }
+    this.meter.update(dt, music, {
+      crowd: this.dancers.filter((d) => d.crowd),
+      heroes: this.heroes,
+      yellow: this.heroes.slice(2, 3),
+    });
   }
+}
+
+export interface GroupActivity {
+  /** Beat hops per dancer per dance beat (1 = everyone hops every beat). */
+  hops: number;
+  /** Hi-hat twitches per dancer per dance beat. */
+  twitch: number;
+  /** Body motion: summed spring speeds, smoothed (compare groups, not units). */
+  motion: number;
+  /** Share of the group mid-swirl / in the air right now. */
+  swirling: number;
+  airborne: number;
+}
+export type ActivityGroup = 'crowd' | 'heroes' | 'yellow';
+export type Activity = Record<ActivityGroup, GroupActivity>;
+
+const WINDOW_S = 4;
+
+/** Rolling rates over the last few seconds, per group. */
+class ActivityMeter {
+  value: Activity = {
+    crowd: blank(),
+    heroes: blank(),
+    yellow: blank(),
+  };
+  private snaps: { t: number; beat: number; counts: Record<ActivityGroup, [number, number]> }[] = [];
+  private t = 0;
+  private sinceSnap = 1;
+
+  update(dt: number, music: Music, groups: Record<ActivityGroup, Dancer[]>) {
+    this.t += dt;
+    const keys = Object.keys(groups) as ActivityGroup[];
+    const k = 1 - Math.exp(-dt * 1.5);
+    for (const g of keys) {
+      const ds = groups[g];
+      if (!ds.length) continue;
+      let motion = 0;
+      let swirling = 0;
+      let airborne = 0;
+      for (const d of ds) {
+        const r = d.w.rig;
+        motion += Math.abs(r.tiltX.v) + Math.abs(r.tiltZ.v) + Math.abs(r.stretch.v) + Math.abs(r.twist.v) + 0.3 * Math.abs(r.vy);
+        if (d.swirling) swirling++;
+        if (r.airborne) airborne++;
+      }
+      const v = this.value[g];
+      v.motion += (motion / ds.length - v.motion) * k;
+      v.swirling = swirling / ds.length;
+      v.airborne = airborne / ds.length;
+    }
+
+    // Counts sampled a few times a second; rates are taken across the window.
+    this.sinceSnap += dt;
+    if (this.sinceSnap < 0.25) return;
+    this.sinceSnap = 0;
+    const counts = {} as Record<ActivityGroup, [number, number]>;
+    for (const g of keys) counts[g] = groups[g].reduce<[number, number]>((a, d) => [a[0] + d.hops, a[1] + d.twitches], [0, 0]);
+    this.snaps.push({ t: this.t, beat: music.danceBeatPos, counts });
+    while (this.snaps.length > 2 && this.t - this.snaps[1].t >= WINDOW_S) this.snaps.shift();
+    const a = this.snaps[0];
+    const b = this.snaps[this.snaps.length - 1];
+    const beats = b.beat - a.beat;
+    for (const g of keys) {
+      const n = groups[g].length;
+      if (!n) continue;
+      const ok = beats > 0.5 && music.playing;
+      this.value[g].hops = ok ? (b.counts[g][0] - a.counts[g][0]) / (n * beats) : 0;
+      this.value[g].twitch = ok ? (b.counts[g][1] - a.counts[g][1]) / (n * beats) : 0;
+    }
+  }
+}
+
+function blank(): GroupActivity {
+  return { hops: 0, twitch: 0, motion: 0, swirling: 0, airborne: 0 };
 }

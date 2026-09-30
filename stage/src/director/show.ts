@@ -4,6 +4,7 @@
  */
 
 import * as THREE from 'three';
+import { dials } from '../dials';
 import { Section, type Music, type MusicEvent } from '../music';
 import { Rng } from '../rng';
 import type { Crowd } from '../crowd';
@@ -72,7 +73,7 @@ export class ShowDirector {
       const dir = this.rng.chance(0.5) ? 1 : -1;
       this.crowd.swirlRipple(music, dir);
       this.crowd.dj.startSwirl(music, 0, 2, dir);
-    } else if (music.hype > 0.55 && ((music.section === Section.Peak && this.bar % 16 === 0 && this.rng.chance(0.5)) || (music.section === Section.Groove && this.bar % 16 === 12 && this.rng.chance(0.25)))) {
+    } else if (music.hype > 0.55 && ((music.section === Section.Peak && this.bar % 16 === 0 && this.rng.chance(0.5 * dials.swirl)) || (music.section === Section.Groove && this.bar % 16 === 12 && this.rng.chance(0.25 * dials.swirl)))) {
       this.crowd.swirlRipple(music, this.rng.chance(0.5) ? 1 : -1);
     }
     // Confetti sprinkles at peaks.

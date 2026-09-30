@@ -15,6 +15,7 @@
  *   idle     breathing, glances and fidgets when the music stops
  */
 
+import { dials } from '../dials';
 import { Section, type Music, type MusicEvent } from '../music';
 import { clamp, Rng, smoothstep } from '../rng';
 import type { Personality } from './look';
@@ -45,7 +46,14 @@ export interface DanceContext {
 }
 
 export class Dancer {
+  /** Live personality: `base` plus the crowd dials for generated crowd members. */
   readonly p: Personality;
+  readonly base: Personality;
+  /** Generated crowd member (the crowd dials apply), not a hero or the DJ. */
+  crowd = false;
+  /** Running counts for the activity readout. */
+  hops = 0;
+  twitches = 0;
   protected rng: Rng;
   routine: ArmRoutine = 'rest';
   protected side: 1 | -1 = 1;
@@ -66,6 +74,9 @@ export class Dancer {
   /** Active swirl, in (lagged) dance beats. */
   protected swirl: { start: number; loops: number; dir: 1 | -1; amp: number } | null = null;
   protected swirlEnv = 0;
+  get swirling() {
+    return this.swirlEnv > 0;
+  }
   /** Seconds the camera wants this one to look at it. */
   lookAtCamera = 0;
   /** Belt/emblem glow scale (0 in light themes, where glow reads as smudges). */
@@ -75,10 +86,24 @@ export class Dancer {
     public w: Wobbler,
     seed: number,
   ) {
-    this.p = w.look.personality;
+    this.base = w.look.personality;
+    this.p = { ...this.base };
     this.rng = new Rng(seed * 31 + 7);
     this.side = this.rng.chance(0.5) ? 1 : -1;
     this.swayOffset = this.rng.range(-0.08, 0.08);
+  }
+
+  /** Re-derive the live personality from the base and the current dials. */
+  retune() {
+    if (!this.crowd) return;
+    const b = this.base;
+    const p = this.p;
+    const unit = (v: number) => clamp(v, 0, 1);
+    p.energy = clamp(b.energy + dials.energy, 0.3, 1.9);
+    p.bounce = unit(b.bounce + dials.bounce);
+    p.jumpy = unit(b.jumpy + dials.jumpy);
+    p.shimmy = unit(b.shimmy + dials.shimmy);
+    p.showoff = unit(b.showoff + dials.showoff);
   }
 
   /** Schedule a jump `delay` seconds from now. */
@@ -105,11 +130,11 @@ export class Dancer {
         if (e.beat % 8 === 0) {
           this.chooseRoutine(music);
           const hot = music.section === Section.Peak || music.section === Section.Groove;
-          if (hot && this.rng.chance(0.03 + 0.1 * this.p.showoff * clamp(h))) this.startSwirl(music, 0, this.rng.chance(0.5) ? 1 : 2);
+          if (hot && this.rng.chance((0.03 + 0.1 * this.p.showoff * clamp(h)) * dials.swirl)) this.startSwirl(music, 0, this.rng.chance(0.5) ? 1 : 2);
         }
         // Nod: a forward kick; the weeble springs back by itself.
         rig.kick(-(0.5 + 0.9 * h) * (0.5 + this.p.bounce) * this.w.look.scale, 0);
-        this.hopEveryBeat = h * this.p.jumpy > 0.5 || (music.section === Section.Build && music.build > 0.75);
+        this.hopEveryBeat = h * this.p.jumpy > dials.hop || (music.section === Section.Build && music.build > 0.75);
         break;
       }
       case 'beat': {
@@ -124,7 +149,10 @@ export class Dancer {
         this.armPop[this.rng.int(2)] = Math.max(0.35, e.strength) * this.p.arms * (0.4 + h);
         break;
       case 'hat':
-        if (this.p.shimmy > 0.6 && music.hype > 0.5) rig.kick(this.rng.range(-0.3, 0.3), this.rng.range(-0.3, 0.3));
+        if (this.p.shimmy > dials.twitchGate && music.hype > dials.twitchHype) {
+          rig.kick(this.rng.range(-0.3, 0.3), this.rng.range(-0.3, 0.3));
+          this.twitches++;
+        }
         break;
       case 'drop': {
         const delay = this.rng.range(0, 0.18);
@@ -134,7 +162,7 @@ export class Dancer {
         if (this.rng.chance(0.35 + 0.4 * this.p.showoff)) this.starUntil = time + (4 * 60) / music.danceBpm;
         this.wooUntil = time + 0.7;
         // Once the landing settles, show off.
-        if (this.rng.chance(0.2 + 0.4 * this.p.showoff)) this.startSwirl(music, 3);
+        if (this.rng.chance((0.2 + 0.4 * this.p.showoff) * dials.swirl)) this.startSwirl(music, 3);
         break;
       }
       case 'phraseStart':
@@ -229,7 +257,7 @@ export class Dancer {
     const lead = 0.06;
     const q = (ph + lead) % 1;
     const land = Math.exp(-q * 7) + 0.5 * Math.exp(-(1 - q) * 16);
-    const A = (0.03 + 0.09 * h * p.bounce) * pres;
+    const A = (0.03 + 0.09 * h * p.bounce) * pres * dials.bob;
     const build = music.section === Section.Build ? music.build : music.build * 0.5;
     const breathe = 0.018 * Math.sin(time * 1.7 + p.lag * 40) * (1 - pres);
     rig.stretch.target = 1 - A * land + A * 0.4 + 0.12 * build * pres + 0.1 * music.pitch * music.vocal * p.singer + breathe - 0.04 * music.calm;
@@ -242,10 +270,11 @@ export class Dancer {
     const beatIdx = Math.floor(beats);
     if (pres > 0.5 && this.swirlEnv < 0.3 && this.lastPhase < takeoff && ph >= takeoff && !rig.airborne && this.hoppedBeat !== beatIdx) {
       const every = this.hopEveryBeat || (h * p.bounce > 0.75 && music.section === Section.Peak);
-      const onDown = (beatIdx + 1) % 2 === 0 && h * p.jumpy > 0.35;
+      const onDown = (beatIdx + 1) % 2 === 0 && h * p.jumpy > dials.hopDown;
       if (every || onDown) {
         rig.hop(Rig.hopSpeed((1 - ph) * beatDur));
         this.hoppedBeat = beatIdx;
+        this.hops++;
       }
     }
     this.lastPhase = ph;

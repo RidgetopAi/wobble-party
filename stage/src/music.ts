@@ -7,6 +7,7 @@
  * events fire exactly on time and moves can be scheduled ahead of the beat.
  */
 
+import { dials } from './dials';
 import { approach, clamp } from './rng';
 
 export interface Frame {
@@ -279,10 +280,11 @@ export class Music {
     this.mouth = gate * clamp(0.06 + 0.3 * rise * rise + 0.9 * this.syllablePulse);
     const conf = clamp(this.beatConf * 1.6);
     const target = clamp(
-      (0.25 + 0.75 * this.energy) * (0.35 + 0.65 * conf) * this.presence +
+      ((0.25 + 0.75 * this.energy) * (0.35 + 0.65 * conf) * this.presence +
         this.dropPulse * 0.4 +
         (this.section === Section.Peak ? 0.15 : 0) -
-        this.calm * 0.25,
+        this.calm * 0.25) *
+        dials.hype,
     );
     this.hype = approach(this.hype, target, 2.5, dt);
   }

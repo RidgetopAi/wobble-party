@@ -3,6 +3,7 @@
  * card (h), and a signal debugger (d) that shows what the party is hearing.
  */
 
+import type { Activity } from './crowd';
 import type { Music } from './music';
 import { SECTION_NAMES } from './music';
 
@@ -38,7 +39,8 @@ export class Hud {
       ['space', 'next camera shot'],
       ['1–9', 'hold a shot · 0 auto'],
       ['t', 'preview next theme · T current'],
-      ['d', 'signal debugger'],
+      ['d', 'signal debugger + crowd activity'],
+      ['k', 'tuning dials'],
       ['f', 'fullscreen'],
       ['h', 'this help'],
       ['q', 'quit'],
@@ -52,7 +54,7 @@ export class Hud {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'wp-debug';
     this.canvas.width = 460;
-    this.canvas.height = 250;
+    this.canvas.height = 340;
     this.ctx = this.canvas.getContext('2d')!;
     document.body.append(this.status, this.help, this.canvas);
   }
@@ -82,7 +84,7 @@ export class Hud {
     );
   }
 
-  update(dt: number, m: Music, extra: string) {
+  update(dt: number, m: Music, extra: string, act?: Activity) {
     const target = m.playing ? 0 : 1;
     this.statusAlpha += (target - this.statusAlpha) * (1 - Math.exp(-dt * 2));
     this.status.style.opacity = String(this.statusAlpha);
@@ -141,5 +143,43 @@ export class Hud {
     plot('v', '#9cf', 70, 50);
     plot('vocal', '#f6c', 130, 50);
     plot('kick', '#f96', 190, 50);
+    if (act) this.drawActivity(act, 256);
+  }
+
+  /** Crowd vs heroes vs the yellow reference dancer: is the crowd too polite? */
+  private drawActivity(act: Activity, y0: number) {
+    const g = this.ctx;
+    const cols: [string, keyof Activity][] = [
+      ['crowd', 'crowd'],
+      ['heroes', 'heroes'],
+      ['yellow', 'yellow'],
+    ];
+    const rows: [string, (a: Activity[keyof Activity]) => string][] = [
+      ['hops/beat', (a) => a.hops.toFixed(2)],
+      ['twitch/beat', (a) => a.twitch.toFixed(2)],
+      ['motion', (a) => a.motion.toFixed(2)],
+      ['swirling', (a) => `${Math.round(a.swirling * 100)}%`],
+    ];
+    g.fillStyle = '#fff';
+    g.fillText('activity (4 s)', 10, y0);
+    cols.forEach(([name], i) => {
+      g.fillStyle = '#aaa';
+      g.fillText(name, 130 + i * 80, y0);
+    });
+    rows.forEach(([label, fmt], r) => {
+      const y = y0 + 15 + r * 15;
+      g.fillStyle = '#aaa';
+      g.fillText(label, 10, y);
+      cols.forEach(([, key], i) => {
+        g.fillStyle = key === 'crowd' ? this.accent() : '#eee';
+        g.fillText(fmt(act[key]), 130 + i * 80, y);
+      });
+    });
+    // Crowd motion as a share of the yellow hero's, the "feels right" reference.
+    const ratio = act.yellow.motion > 1e-3 ? act.crowd.motion / act.yellow.motion : 0;
+    g.fillStyle = '#aaa';
+    g.fillText('crowd÷yel', 250 + 120, y0);
+    g.fillStyle = this.accent();
+    g.fillText(`${Math.round(ratio * 100)}% motion`, 250 + 120, y0 + 15);
   }
 }
