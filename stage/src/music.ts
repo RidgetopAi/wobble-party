@@ -15,6 +15,9 @@ export interface Frame {
   silent: boolean;
   level: number;
   db: number;
+  /** K-weighted loudness and the song's loud reference, dB (diagnostics). */
+  loud?: number;
+  loudRef?: number;
   bands: number[];
   brightness: number;
   flux: number;
@@ -28,6 +31,7 @@ export interface Frame {
   beat: number;
   barBeat: number;
   beatHit: boolean;
+  /** Song-relative intensity: ~0.8 in a song's loud parts, low in breakdowns. */
   energy: number;
   energyLong: number;
   build: number;
@@ -279,8 +283,11 @@ export class Music {
     const gate = clamp((this.vocal - 0.35) / 0.3);
     this.mouth = gate * clamp(0.06 + 0.3 * rise * rise + 0.9 * this.syllablePulse);
     const conf = clamp(this.beatConf * 1.6);
+    // A song's loud body (energy ~0.78) lands where house grooves sat when
+    // the crowd dials were tuned (~0.45), whatever the genre; breakdowns fall
+    // well below, peaks and drops lift above.
     const target = clamp(
-      ((0.25 + 0.75 * this.energy) * (0.35 + 0.65 * conf) * this.presence +
+      ((0.08 + 0.45 * this.energy) * (0.35 + 0.65 * conf) * this.presence +
         this.dropPulse * 0.4 +
         (this.section === Section.Peak ? 0.15 : 0) -
         this.calm * 0.25) *

@@ -1,5 +1,10 @@
 //! Song-structure cues: energy tiers, builds, drops and calm passages.
 //! These drive the show director (camera shots, lighting states, crowd mood).
+//!
+//! Two loudness views, each where it works: builds and drops are *changes*,
+//! detected on the auto-ranged `level` (contrast-enhanced, tuned against the
+//! test set); energy, calm and peak are *states*, read from song-relative
+//! intensity (intensity.rs), which does not mistake a dense mix for a quiet one.
 
 use super::dsp::Follower;
 use std::collections::VecDeque;
@@ -8,6 +13,10 @@ pub const CALM: u8 = 0;
 pub const GROOVE: u8 = 1;
 pub const BUILD: u8 = 2;
 pub const PEAK: u8 = 3;
+
+/// Intensity needed for the peak state (short and 5 s), see intensity.rs.
+const PEAK_SHORT: f32 = 0.84;
+const PEAK_LONG: f32 = 0.79;
 
 pub struct SectionOut {
     pub energy: f32,
@@ -24,6 +33,8 @@ pub struct Sections {
     fast: Follower,
     short: Follower,
     long: Follower,
+    intensity_short: Follower,
+    intensity_long: Follower,
     bass_short: Follower,
     bass_long: Follower,
     high_short: Follower,
@@ -50,6 +61,8 @@ impl Sections {
             fast: Follower::new(0.03, 0.12, fps),
             short: Follower::new(0.25, 0.5, fps),
             long: Follower::new(5.0, 5.0, fps),
+            intensity_short: Follower::new(0.25, 0.5, fps),
+            intensity_long: Follower::new(5.0, 5.0, fps),
             bass_short: Follower::new(0.15, 0.6, fps),
             bass_long: Follower::new(6.0, 6.0, fps),
             high_short: Follower::new(0.4, 0.6, fps),
@@ -70,12 +83,15 @@ impl Sections {
         }
     }
 
-    /// `level`: normalised loudness. `sub`/`bass`/`high`: normalised band levels.
+    /// `level`: auto-ranged loudness (builds, drops). `intensity`: song-relative
+    /// loudness, 0.8 = this song's loud parts (energy, calm, peak). `sub`/`bass`/`high`: normalised band levels.
     /// `onset`: onset event strength this frame (0 if none).
-    pub fn update(&mut self, level: f32, sub: f32, bass: f32, high: f32, onset: f32, kick: f32, beat_conf: f32) -> SectionOut {
+    pub fn update(&mut self, level: f32, intensity: f32, sub: f32, bass: f32, high: f32, onset: f32, kick: f32, beat_conf: f32) -> SectionOut {
         let fast = self.fast.update(level);
         let e = self.short.update(level);
-        let el = self.long.update(level);
+        self.long.update(level);
+        let ie = self.intensity_short.update(intensity);
+        let iel = self.intensity_long.update(intensity);
         let bs = self.bass_short.update(bass);
         let bl = self.bass_long.update(bass);
         let hs = self.high_short.update(high);
@@ -152,11 +168,14 @@ impl Sections {
             }
         }
 
-        let calm = ((0.45 - el) * 2.5).clamp(0.0, 1.0).max(((0.3 - density) * 2.0).clamp(0.0, 1.0) * (1.0 - e));
+        // Calm: well below this song's loud parts for a while, or sparse and quiet.
+        let calm = ((0.55 - iel) * 2.5).clamp(0.0, 1.0).max(((0.3 - density) * 2.0).clamp(0.0, 1.0) * (1.0 - ie));
 
         // Section state with hold time so the director gets stable states.
         self.peak_left = self.peak_left.saturating_sub(1);
-        let target = if self.peak_left > 0 || (e > 0.8 && bs > 0.6 && el > 0.65) {
+        // Peak: at or above the song's loud reference for a while, low end in
+        // and the drums playing (a loud a cappella is not a peak).
+        let target = if self.peak_left > 0 || (ie > PEAK_SHORT && iel > PEAK_LONG && bs > 0.6 && recent_kicks >= 4) {
             PEAK
         } else if build > 0.45 {
             BUILD
@@ -171,6 +190,6 @@ impl Sections {
             self.section_hold = 0;
         }
 
-        SectionOut { energy: e, energy_long: el, build, drop, calm, density, section: self.section }
+        SectionOut { energy: ie, energy_long: iel, build, drop, calm, density, section: self.section }
     }
 }

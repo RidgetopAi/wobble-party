@@ -14,6 +14,10 @@ pub struct Frame {
     pub level: f32,
     /// Raw RMS in dBFS (for diagnostics).
     pub db: f32,
+    /// K-weighted momentary loudness and this song's loud reference, dB
+    /// (diagnostics; `energy` is their difference, mapped to 0..1).
+    pub loud: f32,
+    pub loud_ref: f32,
     /// sub, bass, low-mid, mid, high-mid, high — auto-ranged per band.
     pub bands: [f32; 6],
     /// Spectral centroid mapped to 0..1 (dark..bright).
@@ -36,6 +40,7 @@ pub struct Frame {
     pub bar_beat: u8,
     pub beat_hit: bool,
 
+    /// Song-relative intensity (0.8 = this song's loud parts), short and long.
     pub energy: f32,
     pub energy_long: f32,
     pub build: f32,

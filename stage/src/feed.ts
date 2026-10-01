@@ -129,7 +129,7 @@ export class DemoFeed implements Feed {
       const building = bar >= 24 && bar < 28;
       const dropBar = bar === 28 && this.beat % 4 === 0 && hit;
       const breakdown = bar >= 20 && bar < 24;
-      const energy = breakdown ? 0.35 : building ? 0.5 + (bar - 24) * 0.1 : bar >= 28 ? 0.95 : 0.7;
+      const energy = breakdown ? 0.3 : building ? 0.5 + (bar - 24) * 0.08 : bar >= 28 ? 0.9 : 0.78;
       const kick = hit && !breakdown && !building ? 0.9 : 0;
       const snare = hit && this.beat % 2 === 1 && !breakdown ? 0.7 : 0;
       const t8 = (this.phase * 2) % 1;
@@ -169,7 +169,7 @@ export class DemoFeed implements Feed {
         barBeat: this.beat % 4,
         beatHit: hit,
         energy,
-        energyLong: 0.65,
+        energyLong: 0.76,
         build: building ? (bar - 24) / 4 : 0,
         drop: dropBar ? 1 : 0,
         calm: breakdown ? 0.6 : 0,

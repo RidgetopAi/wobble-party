@@ -2,6 +2,7 @@
 
 pub mod beat;
 pub mod dsp;
+pub mod intensity;
 pub mod mel;
 pub mod net;
 pub mod sections;
@@ -49,6 +50,7 @@ pub struct Analyzer {
     hat_pick: PeakPicker,
     kick_scale: PeakScale,
     beat: beat::BeatTracker,
+    intensity: intensity::Intensity,
     sections: sections::Sections,
     vocal: vocal::VocalDetector,
     mel: mel::Mel,
@@ -95,6 +97,7 @@ impl Analyzer {
             hat_pick: PeakPicker::new(FPS, 0.5, 1.4, 0.12, 0.06),
             kick_scale: PeakScale::new(8.0, FPS, 1e-3),
             beat: beat::BeatTracker::new(FPS),
+            intensity: intensity::Intensity::new(WIN, SAMPLE_RATE, FPS),
             sections: sections::Sections::new(FPS),
             vocal: vocal::VocalDetector::new(FPS, vbin),
             mel: mel::Mel::new(WIN, SAMPLE_RATE, FPS),
@@ -198,7 +201,11 @@ impl Analyzer {
         let low_n = self.kick_scale.update(low);
 
         let b = self.beat.update(flux_n, low_n, bands[1], level, silent);
-        let s = self.sections.update(level, bands[0], bands[1], bands[5], onset, kick, self.beat.confidence);
+        // Sections run on song-relative intensity, not the auto-ranged level:
+        // dense mixes (guitar walls, club masters) never dip, so `level` reads
+        // them as quiet. See intensity.rs.
+        let it = self.intensity.update(&self.stft.mag, &self.stft.side, silent);
+        let s = self.sections.update(level, it.intensity, bands[0], bands[1], bands[5], onset, kick, self.beat.confidence);
         if s.drop > 0.0 {
             self.beat.anchor_downbeat();
         }
@@ -220,6 +227,8 @@ impl Analyzer {
             silent,
             level,
             db: rms_db,
+            loud: it.loud,
+            loud_ref: it.reference,
             bands,
             brightness,
             flux: flux_n,
