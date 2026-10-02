@@ -28,6 +28,9 @@ export interface AccessoryContext {
 
 export interface AccessoryParts {
   glowMats: THREE.MeshStandardMaterial[];
+  /** Moving parts (bat wings, devil tails): called every frame with the dance
+   *  beat phase (0..1) and how hard the wearer is dancing (0..1). */
+  animate: ((phase: number, energy: number) => void)[];
 }
 
 const cache = new Map<string, THREE.BufferGeometry>();
@@ -82,8 +85,66 @@ function starShape(r: number, inner: number) {
   return s;
 }
 
+/** Like shellGeometry, but only part of the way round (phi from the front, +x = +pi/2). */
+function partialShell(shape: BodyShape, u0: number, u1: number, grow: number, phi0: number, phiLen: number, segments: number) {
+  const pts: THREE.Vector2[] = [];
+  const n = 20;
+  for (let i = 0; i <= n; i++) {
+    const u = u0 + ((u1 - u0) * i) / n;
+    // Flares out toward the hem, like cloth hanging off the shoulders.
+    const flare = grow * (1 + 1.6 * (1 - i / n));
+    pts.push(new THREE.Vector2(profileRadius(shape, u) + flare, u * shape.height));
+  }
+  const g = new THREE.LatheGeometry(pts, segments, phi0, phiLen);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A ghost's sheet hem: a skirt round the widest part with a wavy bottom edge. */
+function hemGeometry(shape: BodyShape, segments: number) {
+  const u0 = 0.32;
+  const r0 = profileRadius(shape, u0) + 0.012;
+  const g = new THREE.CylinderGeometry(r0, r0 + 0.07, u0 * shape.height + 0.02, segments, 3, true);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const top = (u0 * shape.height + 0.02) / 2;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const y = pos.getY(i);
+    const t = (top - y) / (2 * top); // 0 at the top, 1 at the hem
+    pos.setY(i, y + top - 0.02 + Math.sin(Math.atan2(x, z) * 7) * 0.035 * t * t);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+function batWingShape() {
+  // One wing, root at the origin, spreading toward +x.
+  const s = new THREE.Shape();
+  s.moveTo(0, 0.1);
+  s.quadraticCurveTo(0.18, 0.22, 0.42, 0.2);
+  s.lineTo(0.5, 0.26);
+  s.quadraticCurveTo(0.5, 0.05, 0.44, -0.06);
+  s.quadraticCurveTo(0.38, 0.0, 0.32, -0.02);
+  s.quadraticCurveTo(0.25, -0.1, 0.2, -0.08);
+  s.quadraticCurveTo(0.14, -0.02, 0.08, -0.06);
+  s.quadraticCurveTo(0.04, -0.02, 0, -0.06);
+  s.closePath();
+  return s;
+}
+
+function earShape(w: number, h: number) {
+  const s = new THREE.Shape();
+  s.moveTo(-w / 2, 0);
+  s.quadraticCurveTo(-w * 0.3, h * 0.6, 0, h);
+  s.quadraticCurveTo(w * 0.3, h * 0.6, w / 2, 0);
+  s.closePath();
+  return s;
+}
+
 export function buildAccessories(list: Accessory[], ctx: AccessoryContext): AccessoryParts {
   const glowMats: THREE.MeshStandardMaterial[] = [];
+  const animate: AccessoryParts['animate'] = [];
   const { shape, color, dark, trim } = ctx;
   const H = shape.height;
   const seg = ctx.quality === 'high' ? 48 : 24;
@@ -247,6 +308,196 @@ export function buildAccessories(list: Accessory[], ctx: AccessoryContext): Acce
         top.add(bun);
         break;
       }
+      case 'witchHat': {
+        const top = ctx.anchor(1, 0, 0);
+        const hat = new THREE.Group();
+        hat.position.y = -0.07;
+        hat.rotation.set(-0.08, 0, 0.1);
+        top.add(hat);
+        const rb = rTop(0.85);
+        const brim = mesh(geo('witchBrim', () => new THREE.CylinderGeometry(1, 1, 1, 40)), color);
+        brim.scale.set(rb * 2.05, 0.02, rb * 2.05);
+        hat.add(brim);
+        // A cone that bends over at the tip: three stacked, tilted frusta.
+        const segs: [number, number, number, number][] = [
+          [0.27, 0.17, 0.2, 0.0],
+          [0.17, 0.09, 0.17, -0.35],
+          [0.09, 0.012, 0.16, -0.75],
+        ];
+        let parent: THREE.Object3D = hat;
+        for (const [r0, r1, h, tilt] of segs) {
+          const piece = new THREE.Group();
+          piece.rotation.x = tilt;
+          parent.add(piece);
+          const m = mesh(new THREE.CylinderGeometry(r1, r0, h, 24), color);
+          m.position.y = h / 2;
+          piece.add(m);
+          const next = new THREE.Group();
+          next.position.y = h;
+          piece.add(next);
+          // Each segment tilts relative to the one below.
+          parent = next;
+        }
+        const band = mesh(geo('witchBand', () => new THREE.CylinderGeometry(1, 1, 1, 24, 1, true)), trim);
+        band.scale.set(0.258, 0.06, 0.258);
+        band.position.y = 0.04;
+        hat.add(band);
+        const buckle = mesh(geo('witchBuckle', () => new THREE.TorusGeometry(1, 0.25, 6, 4)), new THREE.MeshStandardMaterial({ color: 0xffc83d, metalness: 1, roughness: 0.3 }));
+        buckle.scale.setScalar(0.035);
+        buckle.rotation.z = Math.PI / 4;
+        buckle.position.set(0, 0.04, 0.262);
+        hat.add(buckle);
+        break;
+      }
+      case 'horns': {
+        for (const sx of [-1, 1]) {
+          const an = ctx.anchor(0.93, sx * 0.55, -0.02);
+          const base = mesh(geo('hornBase', () => new THREE.ConeGeometry(1, 1, 14)), color);
+          base.scale.set(0.05, 0.12, 0.05);
+          base.position.set(sx * 0.02, 0.05, 0);
+          base.rotation.z = -sx * 0.45;
+          an.add(base);
+          const tip = mesh(geo('hornBase', () => new THREE.ConeGeometry(1, 1, 14)), color);
+          tip.scale.set(0.03, 0.08, 0.03);
+          tip.position.set(sx * 0.06, 0.14, 0);
+          tip.rotation.z = sx * 0.25;
+          an.add(tip);
+        }
+        break;
+      }
+      case 'devilTail': {
+        const an = ctx.anchor(0.2, Math.PI, 0.0);
+        const sway = new THREE.Group();
+        an.add(sway);
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0, -0.05, 0.12),
+          new THREE.Vector3(0.05, 0.05, 0.24),
+          new THREE.Vector3(0.02, 0.2, 0.3),
+          new THREE.Vector3(-0.04, 0.3, 0.27),
+        ]);
+        sway.add(mesh(geo('tail', () => new THREE.TubeGeometry(curve, 24, 0.017, 6)), color));
+        const spade = mesh(geo('spade', () => new THREE.ConeGeometry(1, 1, 4)), color);
+        spade.scale.set(0.06, 0.09, 0.02);
+        spade.position.set(-0.05, 0.34, 0.26);
+        spade.rotation.z = 0.3;
+        sway.add(spade);
+        animate.push((ph, e) => {
+          sway.rotation.y = 0.35 * Math.sin(ph * Math.PI * 2) * (0.4 + e);
+          sway.rotation.x = 0.1 * Math.sin(ph * Math.PI * 4);
+        });
+        break;
+      }
+      case 'catEars':
+      case 'batEars': {
+        const bat = a === 'batEars';
+        const [w, h] = bat ? [0.15, 0.24] : [0.17, 0.17];
+        for (const sx of [-1, 1]) {
+          const an = ctx.anchor(0.9, sx * 0.6, -0.01);
+          const ear = mesh(geo(`ear${a}`, () => new THREE.ExtrudeGeometry(earShape(w, h), { depth: 0.03, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.01, bevelSegments: 2 })), color);
+          ear.position.z = -0.015;
+          ear.rotation.z = -sx * 0.15;
+          an.add(ear);
+          const inner = mesh(geo(`earIn${a}`, () => new THREE.ShapeGeometry(earShape(w * 0.55, h * 0.7))), trim);
+          inner.position.set(0, 0.015, 0.03);
+          inner.rotation.z = -sx * 0.15;
+          an.add(inner);
+        }
+        break;
+      }
+      case 'batWings': {
+        const an = ctx.anchor(0.52, Math.PI, 0.0);
+        const wingMat = (color as THREE.MeshPhysicalMaterial).clone();
+        wingMat.side = THREE.DoubleSide;
+        wingMat.color = (color as THREE.MeshPhysicalMaterial).color;
+        const wings: THREE.Object3D[] = [];
+        for (const sx of [-1, 1]) {
+          const pivot = new THREE.Group();
+          pivot.position.x = sx * 0.04;
+          an.add(pivot);
+          const w = mesh(geo('batWing', () => new THREE.ShapeGeometry(batWingShape(), 6)), wingMat);
+          w.scale.set(sx * 1.25, 1.25, 1);
+          pivot.add(w);
+          wings.push(pivot);
+        }
+        animate.push((ph, e) => {
+          // Two flaps per beat when dancing hard, a lazy fold otherwise.
+          const f = Math.sin(ph * Math.PI * (e > 0.5 ? 4 : 2));
+          const open = 0.55 + (0.2 + 0.35 * e) * f;
+          wings[0].rotation.y = open;
+          wings[1].rotation.y = -open;
+        });
+        break;
+      }
+      case 'ghostHem': {
+        const hem = mesh(hemGeometry(shape, seg), ctx.conform(color));
+        (hem.material as THREE.Material).side = THREE.DoubleSide;
+        hem.frustumCulled = false;
+        ctx.addShell(hem);
+        break;
+      }
+      case 'stem': {
+        const top = ctx.anchor(1, 0, -0.02);
+        const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.01, 0.07, 0), new THREE.Vector3(0.05, 0.12, 0.01), new THREE.Vector3(0.09, 0.13, 0.02)]);
+        top.add(mesh(geo('stem', () => new THREE.TubeGeometry(curve, 12, 0.032, 8)), color));
+        const leaf = mesh(geo('leaf', () => new THREE.SphereGeometry(1, 12, 8)), trim);
+        leaf.scale.set(0.09, 0.012, 0.055);
+        leaf.position.set(-0.07, 0.04, 0.02);
+        leaf.rotation.z = 0.35;
+        top.add(leaf);
+        break;
+      }
+      case 'flatTop': {
+        shell(0.83, 1, 0.025, color);
+        const top = ctx.anchor(1, 0, 0.0);
+        const w = rTop(0.9) * 2;
+        const slab = mesh(geo('flatTop', () => new THREE.BoxGeometry(1, 1, 1)), color);
+        slab.scale.set(w * 0.72, 0.1, w * 0.66);
+        slab.position.y = -0.035;
+        top.add(slab);
+        break;
+      }
+      case 'neckBolts': {
+        for (const sx of [-1, 1]) {
+          const an = ctx.anchor(0.47, sx * Math.PI / 2, 0.0);
+          const bolt = mesh(geo('bolt', () => new THREE.CylinderGeometry(0.022, 0.022, 0.09, 10)), trim);
+          bolt.rotation.x = Math.PI / 2;
+          bolt.position.z = 0.03;
+          const nut = mesh(geo('nut', () => new THREE.CylinderGeometry(0.04, 0.04, 0.03, 6)), trim);
+          nut.rotation.x = Math.PI / 2;
+          nut.position.z = 0.075;
+          an.add(bolt, nut);
+        }
+        break;
+      }
+      case 'capeCollar': {
+        // A tall, flared collar standing up behind the head (red lining in front).
+        const an = ctx.anchor(0.47, 0, -rTop(0.47));
+        const r = rTop(0.47) + 0.035;
+        const outer = mesh(geo(`collar${r.toFixed(3)}`, () => new THREE.CylinderGeometry(r * 1.45, r, 0.34, 32, 1, true, Math.PI - 0.62 * Math.PI, 1.24 * Math.PI)), color);
+        outer.position.y = 0.17;
+        const lining = (trim as THREE.MeshPhysicalMaterial).clone();
+        lining.color = (trim as THREE.MeshPhysicalMaterial).color;
+        lining.side = THREE.BackSide;
+        const inner = new THREE.Mesh(outer.geometry, lining);
+        inner.position.copy(outer.position);
+        inner.scale.setScalar(0.985);
+        an.add(outer, inner);
+        break;
+      }
+      case 'cape': {
+        // Hangs off the shoulders round the back; conforms so it sways with the body.
+        const g = partialShell(shape, 0.05, 0.5, 0.03, Math.PI - 0.58 * Math.PI, 1.16 * Math.PI, seg);
+        const outer = mesh(g, ctx.conform(color));
+        const lin = ctx.conform(trim) as THREE.MeshPhysicalMaterial;
+        lin.side = THREE.BackSide;
+        const inner = mesh(g, lin);
+        for (const m of [outer, inner]) {
+          m.frustumCulled = false;
+          ctx.addShell(m);
+        }
+        break;
+      }
       case 'starGlasses':
       case 'roundGlasses': {
         const face = ctx.anchor(0.64, 0, 0.03);
@@ -289,5 +540,5 @@ export function buildAccessories(list: Accessory[], ctx: AccessoryContext): Acce
       }
     }
   }
-  return { glowMats };
+  return { glowMats, animate };
 }

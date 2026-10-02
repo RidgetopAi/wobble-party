@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { onDials } from './dials';
+import type { SkinId } from './skin';
 import { Section, type Music, type MusicEvent } from './music';
 import { clamp, Rng } from './rng';
 import type { Palette } from './theme';
@@ -239,6 +240,16 @@ export class Crowd {
       const r = Math.hypot(d.w.home.x, d.w.home.z + 1);
       d.startSwirl(music, Math.min(6, Math.round(r / 2.5)), 2, dir);
     }
+  }
+
+  /** Thriller: the whole floor (not the DJ) shuffles together from the next bar. */
+  zombieWalk(music: Music, bars = 4) {
+    for (const d of this.dancers) if (d !== this.dj) d.startZombie(music, bars);
+  }
+
+  /** Dress everyone for a skin. */
+  setSkin(id: SkinId) {
+    for (const w of this.all) w.setSkin(id);
   }
 
   update(dt: number, music: Music, time: number, camera: THREE.Camera) {

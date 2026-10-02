@@ -17,6 +17,10 @@ import { LightRig } from './world/lights';
 import { createShowUniforms, setLedMode, updateShowUniforms, type ShowUniforms } from './world/showUniforms';
 import { LED_MODES } from './world/led';
 import { Venue } from './world/venue';
+import { skin, type SkinId } from './skin';
+import { SpookyWorld } from './world/spooky';
+
+const COLD_FLASH = new THREE.Color(0.62, 0.74, 1.0);
 
 export interface PartyOptions {
   quality: 'high' | 'low';
@@ -38,6 +42,8 @@ export class Party {
   readonly post: Post;
   readonly nowPlaying: NowPlaying;
   readonly logos: Logos;
+  /** The spooky skin's props and effects (built the first time it is worn). */
+  spooky: SpookyWorld | null = null;
   time = 0;
   private pmrem: THREE.PMREMGenerator;
   private envScene = new THREE.Scene();
@@ -48,12 +54,15 @@ export class Party {
   private envDisabled = false;
   private hazeHidden = false;
   private fogDisabled = false;
+  private quality: 'high' | 'low';
+  private flashColor = new THREE.Color();
 
   constructor(
     private renderer: THREE.WebGLRenderer,
     palette: Palette,
     opts: PartyOptions,
   ) {
+    this.quality = opts.quality;
     this.theme = new ThemeState(palette);
     const p = this.theme.p;
     this.u = createShowUniforms(p);
@@ -72,7 +81,7 @@ export class Party {
     this.show = new ShowDirector(this.lights, this.u, this.crowd, this.confetti, this.cam);
     this.nowPlaying = new NowPlaying(this.u);
     this.logos = new Logos(this.u);
-    this.scene.add(this.venue.group, this.crowd.group, this.crowd.shadows, this.lights.group, this.confetti.mesh, this.haze.group);
+    this.scene.add(this.venue.group, this.crowd.group, this.crowd.shadows, this.lights.group, this.confetti.group, this.haze.group);
 
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.buildEnvScene();
@@ -80,8 +89,12 @@ export class Party {
 
     this.theme.onChange((pp) => {
       this.crowd.applyPalette(pp);
+      this.spooky?.applyPalette(pp);
       this.envDirty = true;
     });
+    this.show.spookySong = () => /\b(thriller|monsters?|zombies?|ghosts?|spooky|halloween|witch(es)?|vampires?|skeletons?|haunted|creep|scream|dead|devil)\b/i.test(this.nowPlaying.track?.title ?? '');
+    this.setSkin(skin.id);
+    skin.onChange((id) => this.setSkin(id));
     this.music.on((e) => this.onMusic(e));
     // Timing probe: every landing, with the dance-beat position it hit.
     for (const w of this.crowd.all) {
@@ -128,6 +141,23 @@ export class Party {
     const ctx = { music: this.music, time: this.time, cameraYaw: null };
     this.crowd.onEvent(e, ctx);
     this.show.onEvent(e, this.music, this.time);
+    if (this.spooky?.group.visible) this.spooky.onEvent(e, this.music);
+  }
+
+  /** Dress the party for a skin: costumes, decor, confetti, LED programmes. */
+  setSkin(id: SkinId) {
+    const spooky = id === 'spooky';
+    if (spooky && !this.spooky) {
+      this.spooky = new SpookyWorld(this.u, this.theme.p, this.venue, this.quality);
+      this.scene.add(this.spooky.group);
+    }
+    if (this.spooky) this.spooky.group.visible = spooky;
+    this.crowd.setSkin(id);
+    this.venue.setSkin(id);
+    this.confetti.setKind(spooky ? 'candy' : 'confetti');
+    this.u.uSkin.value = spooky ? 1 : 0;
+    this.show.applySection(this.music);
+    this.envDirty = true;
   }
 
   /** Hide layers by name (debugging the image one layer at a time). */
@@ -164,6 +194,7 @@ export class Party {
     this.nowPlaying.update(dt, this.music);
     this.logos.update(dt, this.music);
     this.cam.update(dt, this.music, t);
+    if (this.spooky?.group.visible) this.spooky.update(dt, this.music);
 
     // Light themes: a daylight party. Additive atmosphere only adds white
     // in a bright room, so haze goes, fog nearly goes, exposure comes down.
@@ -178,7 +209,12 @@ export class Party {
       this.envDirty = false;
       this.envTimer = 0.3;
     }
-    this.post.update(t, this.lights.strobe, this.music.dropPulse * 0.8, p.light, p.ink);
+    // Lightning (spooky) flashes cold blue-white; the strobe stays white.
+    const bolt = this.spooky?.group.visible && this.lights.strobeEnabled ? this.spooky.flash : 0;
+    if (bolt > this.lights.strobe) this.flashColor.copy(COLD_FLASH);
+    else this.flashColor.setRGB(1, 1, 1);
+    this.post.finish.uniforms.uFlashColor.value.copy(this.flashColor);
+    this.post.update(t, Math.max(this.lights.strobe, bolt), this.music.dropPulse * 0.8, p.light, p.ink);
   }
 
   render() {

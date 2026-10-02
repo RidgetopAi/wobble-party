@@ -14,7 +14,8 @@
 
 import * as THREE from 'three';
 import { approach, clamp, Rng } from '../rng';
-import { buildAccessories } from './accessories';
+import { buildAccessories, type AccessoryContext, type AccessoryParts } from './accessories';
+import type { SkinId } from '../skin';
 import { BODY_H, Deform, FaceParams, bodyGeometry, bodyMaterial, conformMaterial, profileRadius, vinyl } from './body';
 import type { Look } from './look';
 import { Rig, Spring } from './rig';
@@ -134,8 +135,19 @@ export class Wobbler {
   readonly tilt = new THREE.Group();
   readonly lower = new THREE.Group();
   readonly spin = new THREE.Group();
-  /** Surface anchors for rigid accessories (updated every frame). */
-  private anchors: { obj: THREE.Object3D; u: number; ang: number; out: number }[] = [];
+  /** Surface anchors for rigid accessories (updated every frame while their outfit shows). */
+  private anchors: { obj: THREE.Object3D; u: number; ang: number; out: number; dress: THREE.Group }[] = [];
+  /** Accessories per skin: built on first use, shown one at a time. */
+  private dress: Partial<Record<SkinId, { group: THREE.Group; parts: AccessoryParts }>> = {};
+  skinId: SkinId = 'classic';
+  /** Set by the dancer each frame: dance-beat phase and how hard (for wings, tails, lanterns). */
+  beatPhase = 0;
+  dancing = 0;
+  /** Costume glow (lantern light, glowing bones/eyes), set by the dancer. */
+  costumeGlow = 0.4;
+  private clock = 0;
+  private palette: Palette | null = null;
+  private accCtx: Omit<AccessoryContext, 'addShell' | 'anchor'>;
   readonly shadow: THREE.Mesh;
   readonly body: THREE.Mesh;
   readonly rig: Rig;
@@ -161,7 +173,9 @@ export class Wobbler {
   readonly colAcc = new THREE.Color();
   readonly colTrim = new THREE.Color();
   readonly colGlow = new THREE.Color();
-  readonly glowMats: THREE.MeshStandardMaterial[];
+  get glowMats(): THREE.MeshStandardMaterial[] {
+    return this.dress[this.skinId]?.parts.glowMats ?? [];
+  }
   /** Home position on the floor (world). */
   readonly home = new THREE.Vector3();
   /** Current floor offset from home (shuffles). */
@@ -229,22 +243,16 @@ export class Wobbler {
     const trim = vinyl(this.colTrim, quality, 0.3);
     trim.color = this.colTrim;
     this.spin.add(this.body, ...this.arms.map((a) => a.shoulder));
-    const parts = buildAccessories(look.accessories, {
+    this.accCtx = {
       shape: { ...shape, height: this.height },
       color: accMat,
       dark,
       trim,
       quality,
       conform: (m) => conformMaterial(m as THREE.MeshPhysicalMaterial, this.deform, quality),
-      addShell: (m) => this.spin.add(m),
-      anchor: (u, ang, out = 0) => {
-        const obj = new THREE.Group();
-        this.anchors.push({ obj, u, ang, out });
-        this.spin.add(obj);
-        return obj;
-      },
-    });
-    this.glowMats = parts.glowMats;
+    };
+    this.setStyle();
+    this.wear('classic');
 
     this.lower.add(this.spin);
     this.tilt.add(this.lower);
@@ -260,8 +268,50 @@ export class Wobbler {
     this.shadow.renderOrder = 1;
   }
 
+  /** Build (once) and show the accessories for a skin. */
+  private wear(id: SkinId) {
+    if (!this.dress[id]) {
+      const group = new THREE.Group();
+      const list = id === 'spooky' && this.look.costume ? this.look.costume.accessories : this.look.accessories;
+      const parts = buildAccessories(list, {
+        ...this.accCtx,
+        addShell: (m) => group.add(m),
+        anchor: (u, ang, out = 0) => {
+          const obj = new THREE.Group();
+          this.anchors.push({ obj, u, ang, out, dress: group });
+          group.add(obj);
+          return obj;
+        },
+      });
+      this.dress[id] = { group, parts };
+      this.spin.add(group);
+    }
+    for (const [k, d] of Object.entries(this.dress)) d.group.visible = k === id;
+  }
+
+  /** Change outfit (classic look or the spooky costume). */
+  setSkin(id: SkinId) {
+    if (id === this.skinId) return;
+    this.skinId = id;
+    this.wear(id);
+    this.setStyle();
+    if (this.palette) this.applyPalette(this.palette);
+  }
+
+  private get costume() {
+    return this.skinId === 'spooky' ? this.look.costume : undefined;
+  }
+
+  private setStyle() {
+    const o = this.costume?.outfit ?? this.look.outfit;
+    this.faceParams.style.set(o.kind, o.pattern, o.emblem, o.beltY);
+    this.faceParams.skin.set(this.costume?.kind ?? 0, 0, 0, this.rng.range(0, 6.28));
+  }
+
   /** Recompute this wobbler's colours from the live palette. */
   applyPalette(p: Palette) {
+    this.palette = p;
+    const cos = this.costume;
     const pick = (v: THREE.Color | number, out: THREE.Color) => {
       if (typeof v !== 'number') return out.copy(v);
       const src = v < 10 ? p.crowd[v] : p.outfit[v - 10];
@@ -269,11 +319,11 @@ export class Wobbler {
       if (this.look.jitter) out.offsetHSL(this.look.jitter * 0.02, 0, this.look.jitter * 0.05);
       return out;
     };
-    pick(this.look.body, this.colBody);
-    pick(this.look.outA, this.colOutA);
-    pick(this.look.outB, this.colOutB);
-    pick(this.look.accColor, this.colAcc);
-    pick(this.look.trim, this.colTrim);
+    pick(cos?.body ?? this.look.body, this.colBody);
+    pick(cos?.outA ?? this.look.outA, this.colOutA);
+    pick(cos?.outB ?? this.look.outB, this.colOutB);
+    pick(cos?.acc ?? this.look.accColor, this.colAcc);
+    pick(cos?.trim ?? this.look.trim, this.colTrim);
     this.colGlow.copy(p.lights[Math.abs(Math.floor(this.look.jitter * 97)) % p.lights.length]);
   }
 
@@ -304,6 +354,7 @@ export class Wobbler {
     // Anchors follow the deformed surface.
     const kxz = 1 / Math.sqrt(Math.max(rig.stretch.x, 0.2));
     for (const a of this.anchors) {
+      if (!a.dress.visible) continue;
       const top = a.u >= 0.995;
       const r = top ? 0 : profileRadius(this.look.shape, a.u) + a.out;
       this.tmp.set(Math.sin(a.ang) * r, a.u * this.height + (top ? a.out : 0), Math.cos(a.ang) * r);
@@ -326,6 +377,7 @@ export class Wobbler {
     this.shadow.scale.set(sh, sh, 1);
     (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.75 / (1 + hop * 2.5);
 
+    for (const fn of this.dress[this.skinId]!.parts.animate) fn(this.beatPhase, this.dancing);
     this.updateFace(dt);
   }
 
@@ -355,6 +407,10 @@ export class Wobbler {
     f.face.set(this.eyeL, this.eyeR, clamp(this.mouth), e.smile);
     f.face2.set(e.happy ? 1 : 0, e.star ? 1 : 0, e.blush, e.lookX);
     f.face3.set(e.lookY, e.glowBelt, e.glowEmblem, 1);
+    // Candle flicker on top of the music.
+    this.clock += dt;
+    const t = this.clock + f.skin.w;
+    f.skin.z = this.costumeGlow * (0.88 + 0.12 * Math.sin(t * 23) * Math.sin(t * 7.3 + 1));
   }
 
   dispose() {

@@ -2,12 +2,14 @@
  * Logos on the big LED wall: every minute or two of music, Omarchy or
  * RidgetopAi comes up on a bar line, holds for a few bars and fades back
  * into the show. Never over the now-playing marquee or the cover art.
+ * The spooky skin adds a HAPPY HALLOWEEN card to the rotation.
  */
 
 import * as THREE from 'three';
 import { Section, type Music } from './music';
 import { Rng } from './rng';
 import type { ShowUniforms } from './world/showUniforms';
+import { skin } from './skin';
 
 const LOGOS = ['logos/omarchy.png', 'logos/ridgetopai.png'];
 
@@ -30,7 +32,10 @@ export class Logos {
   /** Debug (?logos): one every few seconds. */
   demo = false;
 
+  private halloween: Logo | null = null;
+
   constructor(private u: ShowUniforms) {
+    void this.drawHalloween();
     LOGOS.forEach((url, i) => {
       new THREE.TextureLoader().load(new URL(url, document.baseURI).href, (tex) => {
         tex.generateMipmaps = false;
@@ -53,9 +58,10 @@ export class Logos {
       if (music.playing && music.presence > 0.6) this.wait -= dt;
       u.uLogoMix.value *= Math.exp(-dt * 3);
       // Wait for a bar line, and not in the middle of a build.
-      const logo = this.logos[this.idx % LOGOS.length];
+      const pool = skin.id === 'spooky' && this.halloween ? [...this.logos, this.halloween] : this.logos;
+      const logo = pool[this.idx % pool.length];
       if (this.wait <= 0 && onBar && !busy && logo && music.section !== Section.Build) {
-        this.idx++;
+        this.idx = (this.idx + 1) % pool.length;
         u.uLogo.value = logo.tex;
         u.uLogoAspect.value = logo.aspect;
         const barDur = (4 * 60) / Math.max(60, music.danceBpm);
@@ -78,5 +84,46 @@ export class Logos {
       u.uLogoMix.value = 0;
       this.wait = this.demo ? 3 : this.rng.range(60, 120);
     }
+  }
+
+  /** HAPPY / HALLOWEEN in the marquee lettering, with a little bat, as an alpha mask. */
+  private async drawHalloween() {
+    const face = new FontFace('Titan One', `url(${new URL('fonts/TitanOne-Regular.ttf', document.baseURI).href})`);
+    try {
+      document.fonts.add(await face.load());
+    } catch {
+      /* fall back to the system face */
+    }
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 400;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#fff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = '150px "Titan One", sans-serif';
+    g.fillText('HAPPY', 512, 110);
+    g.font = '170px "Titan One", sans-serif';
+    g.fillText('HALLOWEEN', 512, 290);
+    // A bat over the Y.
+    g.save();
+    g.translate(780, 50);
+    g.scale(60, 60);
+    g.beginPath();
+    g.moveTo(0, -0.2);
+    g.quadraticCurveTo(0.5, -0.6, 1.1, -0.4);
+    g.quadraticCurveTo(0.9, 0, 0.7, 0.1);
+    g.quadraticCurveTo(0.5, -0.05, 0.35, 0.2);
+    g.quadraticCurveTo(0.15, 0.05, 0, 0.35);
+    g.quadraticCurveTo(-0.15, 0.05, -0.35, 0.2);
+    g.quadraticCurveTo(-0.5, -0.05, -0.7, 0.1);
+    g.quadraticCurveTo(-0.9, 0, -1.1, -0.4);
+    g.quadraticCurveTo(-0.5, -0.6, 0, -0.2);
+    g.fill();
+    g.restore();
+    const tex = new THREE.CanvasTexture(c);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    this.halloween = { tex, aspect: c.width / c.height };
   }
 }

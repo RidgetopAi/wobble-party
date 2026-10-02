@@ -11,10 +11,12 @@
  *   ?quality=low|high  ?crowd=N
  *   ?capture&frozen    deterministic stepping for tools/*.mjs (window.__wp)
  *   ?energy=0.2&hop=0.4...  dance tuning dials (see dials.ts; k shows the panel)
+ *   ?skin=auto|classic|spooky  dress-up layer (see skin.ts; s cycles and saves)
  */
 
 import * as THREE from 'three';
 import { readDials } from './dials';
+import { skin } from './skin';
 import { DemoFeed, LiveFeed, ReplayFeed, type Feed, type ThemeMessage } from './feed';
 import { Hud } from './hud';
 import { startLab } from './lab';
@@ -27,6 +29,7 @@ const params = new URLSearchParams(location.search);
 const capture = params.has('capture');
 // Before the party is built: crowd personalities are derived from the dials.
 readDials(params);
+skin.init(params);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: capture });
 renderer.setPixelRatio(Math.min(devicePixelRatio, capture ? 1 : 1.5));
@@ -98,6 +101,8 @@ async function startParty() {
 
   // Debug: ?swirl makes everyone do the signature move every 4 bars.
   party.show.forceSwirl = params.has('swirl');
+  // Debug: ?zombie starts the zombie shuffle every 8 bars (spooky skin).
+  party.show.forceZombie = params.has('zombie');
   // Debug: ?logos brings the wall logos up every few seconds.
   party.logos.demo = params.has('logos');
 
@@ -136,6 +141,10 @@ async function startParty() {
     if (e.key === 'd') hud.toggleDebug();
     else if (e.key === 'h') hud.toggleHelp();
     else if (e.key === 'k') tune?.toggle();
+    else if (e.key === 's') {
+      skin.cycle();
+      hud.toast('skin: ', { b: skin.label() });
+    }
     else if (e.key === 'f') {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen();
@@ -180,7 +189,7 @@ async function startParty() {
     },
     info() {
       const m = party.music;
-      return { clock, bpm: m.bpm, section: m.section, hype: m.hype, vocal: m.vocal, shot: party.cam.current.kind, theme: party.theme.p.name, activity: party.crowd.activity() };
+      return { clock, bpm: m.bpm, section: m.section, hype: m.hype, vocal: m.vocal, shot: party.cam.current.kind, theme: party.theme.p.name, skin: skin.id, zombies: party.crowd.dancers.filter((d) => d.zombieing).length, activity: party.crowd.activity() };
     },
   };
   (window as unknown as { __wp: typeof api }).__wp = api;
@@ -256,6 +265,6 @@ async function startParty() {
           : ['waiting for the wobble brain…']),
       );
     }
-    hud.update(dt, party.music, `${fps.toFixed(0)} fps · ${party.cam.current.kind} · ${party.theme.p.name}`, party.crowd.activity());
+    hud.update(dt, party.music, `${fps.toFixed(0)} fps · ${party.cam.current.kind} · ${party.theme.p.name} · ${skin.id}`, party.crowd.activity());
   });
 }

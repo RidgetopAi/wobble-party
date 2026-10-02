@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { Rng } from '../rng';
 import { Emblem, Pattern, type BodyShape, type OutfitStyle } from './body';
+import { crowdCostume, djCostume, heroCostumes, type Costume } from './costume';
 
 export type Accessory =
   | 'cap'
@@ -23,7 +24,20 @@ export type Accessory =
   | 'antenna'
   | 'crown'
   | 'pompadour'
-  | 'bun';
+  | 'bun'
+  // Costume pieces (spooky skin).
+  | 'witchHat'
+  | 'horns'
+  | 'devilTail'
+  | 'catEars'
+  | 'batEars'
+  | 'batWings'
+  | 'ghostHem'
+  | 'stem'
+  | 'flatTop'
+  | 'neckBolts'
+  | 'capeCollar'
+  | 'cape';
 
 export interface Personality {
   /** Overall movement size 0.5..1.4 */
@@ -57,6 +71,8 @@ export interface Look {
   trim: THREE.Color | number;
   personality: Personality;
   scale: number;
+  /** What they wear in the spooky skin. */
+  costume?: Costume;
 }
 
 const HAT_SETS: Accessory[][] = [
@@ -91,7 +107,7 @@ export function crowdLook(seed: number): Look {
     [4, 1],
     [0, 1],
   ] as const);
-  return {
+  const look: Look = {
     shape: {
       height: r.range(0.88, 1.12),
       width: r.range(0.92, 1.12),
@@ -129,6 +145,8 @@ export function crowdLook(seed: number): Look {
     personality: personality(r),
     scale: r.range(0.9, 1.08),
   };
+  look.costume = crowdCostume(seed, look);
+  return look;
 }
 
 function personality(r: Rng): Personality {
@@ -161,12 +179,14 @@ export function djLook(): Look {
     trim: c('#2ec4c6'),
     personality: { energy: 1.1, lag: 0, bounce: 0.9, sway: 0.5, arms: 1, jumpy: 0.4, shimmy: 0.5, singer: 0.8, showoff: 0.3 },
     scale: 1.55,
+    costume: djCostume(),
   };
 }
 
 /** Front-row heroes, after the key art. */
 export function heroLooks(): Look[] {
-  return [
+  const costumes = heroCostumes();
+  const looks: Look[] = [
     {
       // Pink bow girl with the heart
       shape: { height: 1.0, width: 1.05, pear: 0.34, boxy: 2.2 },
@@ -238,4 +258,6 @@ export function heroLooks(): Look[] {
       scale: 1.05,
     },
   ];
+  looks.forEach((l, i) => (l.costume = costumes[i]));
+  return looks;
 }

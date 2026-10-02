@@ -9,6 +9,8 @@ import { SECTION_NAMES } from './music';
 
 export class Hud {
   private status: HTMLDivElement;
+  private toastEl: HTMLDivElement;
+  private toastTimer = 0;
   private help: HTMLDivElement;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -28,6 +30,10 @@ export class Hud {
         display: none; border: 1px solid rgba(255,255,255,.12); }
       .wp-help kbd { display: inline-block; min-width: 1.6em; text-align: center; padding: 0 .3em; margin-right: .6em;
         border-radius: 4px; background: rgba(255,255,255,.14); }
+      .wp-toast { position: fixed; left: 50%; top: 28px; transform: translateX(-50%); padding: 8px 18px; border-radius: 999px;
+        background: rgba(10,10,14,.72); backdrop-filter: blur(8px); color: #fff; font: 500 15px/1.4 ui-sans-serif, system-ui, sans-serif;
+        border: 1px solid rgba(255,255,255,.14); pointer-events: none; opacity: 0; transition: opacity .4s; }
+      .wp-toast b { font-weight: 700; }
       .wp-debug { position: fixed; left: 16px; top: 16px; pointer-events: none; display: none; }
     `;
     document.head.appendChild(style);
@@ -39,6 +45,7 @@ export class Hud {
       ['space', 'next camera shot'],
       ['1–9', 'hold a shot · 0 auto'],
       ['t', 'preview next theme · T current'],
+      ['s', 'skin: auto · classic · spooky'],
       ['d', 'signal debugger + crowd activity'],
       ['k', 'tuning dials'],
       ['f', 'fullscreen'],
@@ -56,7 +63,9 @@ export class Hud {
     this.canvas.width = 460;
     this.canvas.height = 340;
     this.ctx = this.canvas.getContext('2d')!;
-    document.body.append(this.status, this.help, this.canvas);
+    this.toastEl = document.createElement('div');
+    this.toastEl.className = 'wp-toast';
+    document.body.append(this.status, this.help, this.canvas, this.toastEl);
   }
 
   toggleHelp() {
@@ -66,6 +75,14 @@ export class Hud {
   toggleDebug() {
     this.debug = !this.debug;
     this.canvas.style.display = this.debug ? 'block' : 'none';
+  }
+
+  /** A short message at the top that shows over the music, then fades. */
+  toast(...parts: (string | { b: string })[]) {
+    this.toastEl.replaceChildren(...parts.map((p) => (typeof p === 'string' ? p : Object.assign(document.createElement('b'), { textContent: p.b }))));
+    this.toastEl.style.opacity = '1';
+    clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => (this.toastEl.style.opacity = '0'), 2200);
   }
 
   /** Status line; `{ b: text }` parts are bold. Always text, never markup

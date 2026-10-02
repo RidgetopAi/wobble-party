@@ -86,6 +86,8 @@ export const enum Emblem {
   W = 5,
   Skull = 6,
   Ring = 7,
+  Bat = 8,
+  Pumpkin = 9,
 }
 
 export const enum Pattern {
@@ -112,6 +114,10 @@ export class FaceParams {
   readonly face2 = new THREE.Vector4(0, 0, 0.6, 0);
   /** x: look y, y: belt glow, z: emblem glow, w: eye shine */
   readonly face3 = new THREE.Vector4(0, 0, 0, 1);
+  /** Outfit: kind, pattern, emblem, beltY (swapped by costumes). */
+  readonly style = new THREE.Vector4();
+  /** x: costume kind (0 none), y: unused, z: costume glow (lantern flicker, bones), w: seed */
+  readonly skin = new THREE.Vector4();
 }
 
 const GLSL_COMMON = /* glsl */ `
@@ -157,6 +163,7 @@ uniform vec4 uFace2;   // happy, star, blush, lookX
 uniform vec4 uFace3;   // lookY, beltGlow, emblemGlow, shine
 uniform float uFaceY;  // eye height (normalised)
 uniform float uFaceR;  // body radius at the eyes
+uniform vec4 uSkin;    // costume, -, glow, seed
 
 float sdEllipse(vec2 p, vec2 r) {
   // Cheap ellipse distance (good near the boundary).
@@ -218,6 +225,34 @@ float sdSkull(vec2 p, float s) {
   d = min(d, sdBox(p - vec2(0.0, -0.45), vec2(0.34, 0.2)));
   float holes = min(sdCircle(vec2(abs(p.x), p.y) - vec2(0.25, 0.1), 0.17), sdBox(p - vec2(0.0, -0.18), vec2(0.06, 0.08)));
   return max(d, -holes) * s;
+}
+float sdTri(vec2 p, float r) {
+  // Equilateral triangle, point up.
+  const float k = 1.7320508;
+  p.x = abs(p.x) - r;
+  p.y = p.y + r / k;
+  if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+  p.x -= clamp(p.x, -2.0 * r, 0.0);
+  return -length(p) * sign(p.y);
+}
+float sdBat(vec2 p, float s) {
+  p /= s;
+  p.x = abs(p.x);
+  float d = sdEllipse(p - vec2(0.0, -0.05), vec2(0.16, 0.3));
+  float wing = sdEllipse(p - vec2(0.5, 0.08), vec2(0.5, 0.3));
+  // Scalloped trailing edge.
+  float bites = min(min(sdCircle(p - vec2(0.3, -0.3), 0.17), sdCircle(p - vec2(0.62, -0.26), 0.15)), sdCircle(p - vec2(0.92, -0.14), 0.12));
+  wing = max(wing, -bites);
+  d = min(d, wing);
+  d = min(d, sdSeg(p, vec2(0.07, 0.2), vec2(0.12, 0.42)) - 0.05);
+  return d * s;
+}
+float sdPumpkin(vec2 p, float s) {
+  p /= s;
+  float d = sdEllipse(p - vec2(0.0, -0.08), vec2(0.82, 0.62));
+  d = min(d, sdBox(p - vec2(0.05, 0.62), vec2(0.07, 0.16)));
+  float carve = min(sdTri(vec2(abs(p.x) - 0.3, p.y - 0.02), 0.14), sdBox(p - vec2(0.0, -0.33), vec2(0.42, 0.07)));
+  return max(d, -carve) * s;
 }
 float fill(float d, float aa) { return 1.0 - smoothstep(-aa, aa, d); }
 
@@ -287,7 +322,9 @@ vec3 wobbleSurface(vec3 base, out float rough, out vec3 glow) {
     else if (em < 4.5) d = sdNote(ep, s);
     else if (em < 5.5) d = sdW(ep, s);
     else if (em < 6.5) d = sdSkull(ep, s * 0.9);
-    else d = abs(sdCircle(ep, s * 0.8)) - s * 0.18;
+    else if (em < 7.5) d = abs(sdCircle(ep, s * 0.8)) - s * 0.18;
+    else if (em < 8.5) d = sdBat(ep, s * 1.25);
+    else d = sdPumpkin(ep, s);
     float m = fill(d, aa);
     vec3 ec = kind > 0.5 ? uOutB : uOutA;
     float lc = dot(col, vec3(0.3, 0.59, 0.11));
@@ -296,16 +333,138 @@ vec3 wobbleSurface(vec3 base, out float rough, out vec3 glow) {
     glow += ec * m * uFace3.z;
   }
 
+  // ---------------- costume paint (spooky skin), under the face
+  int ck = int(uSkin.x + 0.5);
+  vec2 bq = q / H;
+  float front = cos(ang);
+  if (ck == 1) {
+    // Pumpkin: ribs between the lobes, darker toward the stem and the base.
+    float rib = 1.0 - abs(sin(ang * 4.0 + 0.4));
+    col *= 1.0 - 0.32 * pow(rib, 5.0);
+    col *= 0.78 + 0.22 * smoothstep(0.02, 0.3, u) * smoothstep(1.0, 0.8, u);
+    rough = 0.25;
+  } else if (ck == 2 && front > 0.0) {
+    // Skeleton: spine, ribs and pelvis in bone, faintly glow-in-the-dark.
+    float bone = sdBox(bq - vec2(0.0, 0.33), vec2(0.016, 0.12));
+    for (int k = 0; k < 3; k++) {
+      float fk = float(k);
+      float y = 0.43 - fk * 0.06;
+      float r = abs(bq.y - y + 0.9 * bq.x * bq.x) - 0.013;
+      bone = min(bone, max(r, abs(bq.x) - (0.16 - fk * 0.018)));
+    }
+    bone = min(bone, sdEllipse(vec2(abs(bq.x) - 0.06, bq.y - 0.17), vec2(0.065, 0.045)));
+    float bm = fill(bone, aa / H);
+    col = mix(col, vec3(0.93, 0.9, 0.82), bm);
+    glow += vec3(0.45, 1.0, 0.6) * bm * 0.12 * uSkin.z;
+  } else if (ck == 4) {
+    // Mummy: wraps that wind round at alternating slants, frayed edges.
+    float band = floor(bq.y * 11.0);
+    float slant = mod(band, 2.0) < 0.5 ? 0.35 : -0.3;
+    float t = bq.y * 11.0 + slant * bq.x * 3.0 + 0.3 * sin(ang * 3.0 + band);
+    float edge = abs(fract(t) - 0.5);
+    col *= 0.7 + 0.3 * smoothstep(0.5, 0.36, edge);
+    col *= 0.92 + 0.08 * fract(sin(band * 12.9898) * 43758.5);
+  } else if (ck == 5 && u > 0.8) {
+    // Frankenstein: a jagged black fringe under the flat top.
+    if (u > 0.86 - 0.035 * abs(sin(ang * 9.0))) col = vec3(0.06, 0.055, 0.07);
+  } else if (ck == 6) {
+    // Vampire: slicked hair with a widow's peak.
+    float hl = 0.76 + 0.12 * smoothstep(0.0, 1.0, front) - 0.07 * max(0.0, 1.0 - abs(ang) / 0.28);
+    col = mix(col, vec3(0.05, 0.04, 0.07), smoothstep(hl - 0.004, hl + 0.004, u));
+  }
+
   // ---------------- face
-  if (cos(ang) > 0.1) {
+  if (front > 0.1) {
     float R = uFaceR;
     vec2 f = (q - vec2(0.0, uFaceY * H)) / R;
     vec2 look = vec2(uFace2.w, uFace3.x) * 0.05;
+    float aR = aa / R;
+    if (ck == 1) {
+      // Jack-o'-lantern: carved eyes, nose and a toothy grin, lit from inside.
+      float d = 1e3;
+      for (int i = 0; i < 2; i++) {
+        float sx = i == 0 ? -1.0 : 1.0;
+        float open = i == 0 ? uFace.x : uFace.y;
+        vec2 e = f - vec2(sx * 0.31, 0.03) - look;
+        if (uFace2.y > 0.5) d = min(d, sdStar5(e * vec2(1.0, -1.0), 0.21, 0.5));
+        else if (uFace2.x > 0.5) d = min(d, max(abs(length(e + vec2(0.0, 0.12)) - 0.15) - 0.045, -e.y - 0.02));
+        else d = min(d, sdTri(vec2(e.x, (e.y + 0.04) / max(open, 0.12)), 0.15) * min(1.0, max(open, 0.12) + 0.3));
+      }
+      d = min(d, sdTri(vec2(f.x, f.y + 0.17), 0.065));
+      vec2 m = f - vec2(0.0, -0.36);
+      float w = 0.46;
+      float xt = clamp(m.x / w, -1.0, 1.0);
+      float top = 0.02 + (0.12 + 0.16 * uFace.w) * xt * xt;
+      float bot = top - (0.08 + 0.2 * uFace.z) * (1.0 - xt * xt) - 0.015;
+      top -= 0.07 * step(abs(abs(m.x) - 0.15), 0.045);
+      bot += 0.06 * step(abs(m.x), 0.05);
+      d = min(d, max(max(m.y - top, bot - m.y), abs(m.x) - w));
+      float wall = fill(d - 0.03, aR);
+      float hole = fill(d, aR);
+      vec3 flame = mix(vec3(1.0, 0.45, 0.06), vec3(1.0, 0.86, 0.38), 0.5 + 0.5 * sin(f.y * 6.0 + uSkin.w));
+      col = mix(col, col * 0.45, wall);
+      col = mix(col, flame * (0.55 + 0.45 * uSkin.z), hole);
+      glow += flame * hole * (0.5 + 1.6 * uSkin.z);
+      rough = max(rough, hole);
+    } else if (ck == 2) {
+      // Skull: bone mask and jaw, deep sockets with glowing pupils, teeth.
+      float skull = min(sdEllipse(f - vec2(0.0, 0.06), vec2(0.7, 0.6)), sdBox(f - vec2(0.0, -0.42), vec2(0.3, 0.18)) - 0.07);
+      col = mix(col, vec3(0.94, 0.91, 0.83), fill(skull, aR));
+      for (int i = 0; i < 2; i++) {
+        float sx = i == 0 ? -1.0 : 1.0;
+        float open = i == 0 ? uFace.x : uFace.y;
+        vec2 e = f - vec2(sx * 0.3, 0.04);
+        col = mix(col, vec3(0.03, 0.02, 0.04), fill(sdEllipse(e, vec2(0.17, 0.19)), aR));
+        vec2 pp = e - look * 1.6;
+        float pd = uFace2.y > 0.5 ? sdStar5(pp * vec2(1.0, -1.0), 0.12, 0.5) : sdCircle(pp, uFace2.x > 0.5 ? 0.035 : 0.055);
+        float pm = fill(pd, aR) * step(0.3, open);
+        vec3 pc = uFace2.y > 0.5 ? vec3(1.0, 0.85, 0.3) : vec3(0.55, 1.0, 0.7);
+        col = mix(col, pc, pm);
+        glow += pc * pm * (0.6 + 0.8 * uSkin.z);
+      }
+      col = mix(col, vec3(0.03, 0.02, 0.04), fill(sdTri(vec2(f.x, -(f.y + 0.2)), 0.06), aR));
+      vec2 m = f - vec2(0.0, -0.42);
+      float gap = 0.015 + 0.16 * uFace.z;
+      float teeth = step(abs(m.y), 0.075 + gap * 0.5) * step(abs(m.x), 0.22);
+      float lines = step(abs(fract(m.x * 13.0) - 0.5), 0.09) + step(abs(m.y), gap * 0.5);
+      col = mix(col, vec3(0.03, 0.02, 0.04), fill(max(abs(m.x) - 0.22, abs(m.y) - 0.075 - gap * 0.5) + 0.0, aR) * clamp(lines, 0.0, 1.0) * teeth);
+    } else if (ck == 3) {
+      // Ghost: hollow black eyes and a round "oooh".
+      for (int i = 0; i < 2; i++) {
+        float sx = i == 0 ? -1.0 : 1.0;
+        float open = i == 0 ? uFace.x : uFace.y;
+        vec2 e = f - vec2(sx * 0.3, 0.02) - look;
+        float d;
+        if (uFace2.x > 0.5 || open < 0.2) d = max(abs(length(e - vec2(0.0, -0.1)) - 0.12) - 0.035, -e.y);
+        else d = sdEllipse(e, vec2(0.12, 0.2 * open));
+        col = mix(col, vec3(0.03, 0.03, 0.06), fill(d, aR));
+      }
+      vec2 m = f - vec2(0.0, -0.36);
+      float d = sdEllipse(m, vec2(0.07 + 0.06 * uFace.z, 0.06 + 0.18 * uFace.z));
+      col = mix(col, vec3(0.03, 0.03, 0.06), fill(d, aR));
+      glow += vec3(0.55, 0.65, 1.0) * 0.08 * (0.5 + uSkin.z);
+    } else {
+    // Standard face. Costumes tweak eye colour and blush.
+    vec3 inkCol = vec3(0.02, 0.015, 0.03);
+    vec3 inkGlow = vec3(0.0);
+    float blushK = 1.0;
+    float shineK = 1.0;
+    if (ck == 4) {
+      // Mummy: a dark gap in the wraps with glowing eyes inside.
+      float slot = sdBox(f - vec2(0.0, 0.0), vec2(0.62, 0.17));
+      col = mix(col, vec3(0.025, 0.018, 0.012), fill(slot - 0.04, aR));
+            inkCol = vec3(1.0, 0.62, 0.08);
+      inkGlow = inkCol * (0.25 + 0.6 * uSkin.z);
+      blushK = 0.0;
+      shineK = 0.0;
+    } else if (ck == 5 || ck == 6) {
+      blushK = ck == 6 ? 0.35 : 0.2;
+    }
     // blush
     for (int i = 0; i < 2; i++) {
       float sx = i == 0 ? -1.0 : 1.0;
       float bl = sdEllipse(f - vec2(sx * 0.56, -0.2), vec2(0.16, 0.095));
-      float bm = (1.0 - smoothstep(-0.03, 0.05, bl)) * uFace2.z;
+      float bm = (1.0 - smoothstep(-0.03, 0.05, bl)) * uFace2.z * blushK;
       col = mix(col, vec3(1.0, 0.36, 0.48), bm * 0.6);
     }
     // eyes
@@ -334,9 +493,10 @@ vec3 wobbleSurface(vec3 base, out float rough, out vec3 glow) {
         float d = sdEllipse(ep, vec2(0.145, 0.21 * open));
         eyeInk = fill(d, aa / R);
         shine = fill(sdCircle(ep - vec2(0.05, 0.085 * open), 0.058), aa / R) + fill(sdCircle(ep - vec2(-0.045, -0.08 * open), 0.026), aa / R);
-        shine *= step(0.45, open) * uFace3.w;
+        shine *= step(0.45, open) * uFace3.w * shineK;
       }
-      col = mix(col, vec3(0.02, 0.015, 0.03), eyeInk);
+      col = mix(col, inkCol, eyeInk);
+      glow += inkGlow * eyeInk;
       col = mix(col, vec3(1.0), clamp(shine, 0.0, 1.0));
       rough = max(rough, eyeInk);
     }
@@ -359,6 +519,39 @@ vec3 wobbleSurface(vec3 base, out float rough, out vec3 glow) {
       col = mix(col, vec3(0.28, 0.03, 0.07), mm);
       col = mix(col, vec3(0.95, 0.38, 0.45), tongue);
       rough = max(rough, mm * 0.5);
+    }
+    // Costume touches over the face.
+    if (ck == 6 || ck == 10) {
+      // Fangs under the top lip.
+      for (int i = 0; i < 2; i++) {
+        float sx = i == 0 ? -1.0 : 1.0;
+        float fd = sdTri(vec2(m.x - sx * 0.075, -(m.y + 0.04)), 0.032);
+        col = mix(col, vec3(1.0, 0.99, 0.95), fill(fd, aR));
+      }
+    } else if (ck == 7) {
+      // Cat: pink nose and whiskers.
+      col = mix(col, vec3(1.0, 0.5, 0.65), fill(sdTri(vec2(f.x, -(f.y + 0.14)), 0.05) - 0.01, aR));
+      for (int i = 0; i < 6; i++) {
+        float sx = i < 3 ? -1.0 : 1.0;
+        float k = float(i - (i < 3 ? 0 : 3)) - 1.0;
+        float wd = sdSeg(f, vec2(sx * 0.42, -0.2 + k * 0.035), vec2(sx * 0.82, -0.17 + k * 0.1)) - 0.011;
+        col = mix(col, vec3(0.08, 0.06, 0.1), fill(wd, aR));
+      }
+    } else if (ck == 9) {
+      // Devil: mischievous brows.
+      for (int i = 0; i < 2; i++) {
+        float sx = i == 0 ? -1.0 : 1.0;
+        float bd = sdSeg(f, vec2(sx * 0.17, 0.25), vec2(sx * 0.46, 0.36)) - 0.032;
+        col = mix(col, vec3(0.1, 0.03, 0.05), fill(bd, aR));
+      }
+    } else if (ck == 5) {
+      // Frankenstein: stitches across the forehead and one cheek.
+      float sd = sdSeg(f, vec2(-0.4, 0.42), vec2(0.3, 0.47)) - 0.014;
+      sd = min(sd, max(abs(fract(f.x * 9.0) - 0.5) * 0.11 - 0.012, abs(f.y - 0.445 - 0.07 * f.x) - 0.06));
+      sd = max(sd, abs(f.x + 0.05) - 0.36);
+      float cd = sdSeg(f, vec2(0.48, -0.08), vec2(0.62, -0.36)) - 0.012;
+      col = mix(col, vec3(0.12, 0.16, 0.1), fill(min(sd, cd), aR));
+    }
     }
   }
   return col;
@@ -394,7 +587,8 @@ export function bodyMaterial(o: BodyMaterialOptions): THREE.MeshPhysicalMaterial
     uOutA: { value: o.outA },
     uOutB: { value: o.outB },
     uGlowCol: { value: o.glow },
-    uStyle: { value: new THREE.Vector4(o.style.kind, o.style.pattern, o.style.emblem, o.style.beltY) },
+    uStyle: { value: o.face.style.set(o.style.kind, o.style.pattern, o.style.emblem, o.style.beltY) },
+    uSkin: { value: o.face.skin },
     uFace: { value: o.face.face },
     uFace2: { value: o.face.face2 },
     uFace3: { value: o.face.face3 },

@@ -13,12 +13,22 @@ import { LED_MODES } from '../world/led';
 import type { HeadProgram, LaserProgram, LightRig } from '../world/lights';
 import { pushKick, setLedMode, type ShowUniforms } from '../world/showUniforms';
 import type { CameraDirector } from './camera';
+import { skin } from '../skin';
+
+/** The spooky skin swaps the calm plasma for the moonlit graveyard. */
+function led(u: ShowUniforms, mode: number) {
+  setLedMode(u, skin.id === 'spooky' && mode === LED_MODES.plasma ? LED_MODES.moon : mode);
+}
 
 export class ShowDirector {
   private rng = new Rng(314);
   private bar = 0;
   /** Debug (?swirl): a swirl ripple every 4 bars. */
   forceSwirl = false;
+  /** Debug (?zombie): the zombie shuffle every 8 bars (spooky skin). */
+  forceZombie = false;
+  /** Is the current track a Halloween song? (more zombie shuffles) */
+  spookySong: () => boolean = () => false;
 
   constructor(
     private rig: LightRig,
@@ -43,7 +53,7 @@ export class ShowDirector {
         this.rig.flash(time, 0.45);
         this.rig.program = 'ballyhoo';
         this.rig.laserProgram = 'fan';
-        setLedMode(this.u, LED_MODES.checker);
+        led(this.u, LED_MODES.checker);
         this.cam.onDrop();
         break;
       case 'section':
@@ -51,7 +61,7 @@ export class ShowDirector {
         break;
       case 'phraseStart':
         this.cam.onPhraseStart(music);
-        if (music.section === Section.Groove && this.rng.chance(0.4)) setLedMode(this.u, LED_MODES.wave);
+        if (music.section === Section.Groove && this.rng.chance(0.4)) led(this.u, skin.id === 'spooky' && this.rng.chance(0.5) ? LED_MODES.eyes : LED_MODES.wave);
         break;
       case 'musicStart':
         this.applySection(music);
@@ -64,8 +74,18 @@ export class ShowDirector {
     this.rig.onBar(this.bar);
     this.cam.onBar(music);
     if (this.bar % 8 === 0) this.applySection(music, true);
+    // Spooky: the zombie shuffle (more of it for a Halloween song).
+    const spooky = skin.id === 'spooky';
+    const song = spooky && this.spookySong() ? 2.5 : 1;
+    let zombie = false;
+    if (spooky && music.hype > 0.3) {
+      if (this.forceZombie) zombie = this.bar % 8 === 3;
+      else if (music.section === Section.Peak && this.bar % 16 === 8) zombie = this.rng.chance(0.4 * song);
+      else if (music.section === Section.Groove && this.bar % 16 === 4) zombie = this.rng.chance(0.25 * song);
+      if (zombie) this.crowd.zombieWalk(music, 4);
+    }
     // A stadium wave now and then when the room is hot.
-    if (music.section === Section.Peak && this.bar % 16 === 8 && this.rng.chance(0.6)) {
+    if (!zombie && music.section === Section.Peak && this.bar % 16 === 8 && this.rng.chance(0.6)) {
       this.crowd.wave(time, this.rng.chance(0.5), 60 / music.danceBpm);
     }
     // The crowd's signature move, rippling out from the middle.
@@ -89,29 +109,29 @@ export class ShowDirector {
     if (!music.playing) {
       this.rig.program = 'calm';
       this.rig.laserProgram = 'off';
-      setLedMode(this.u, LED_MODES.plasma);
+      led(this.u, LED_MODES.plasma);
       return;
     }
     switch (s) {
       case Section.Calm:
         this.rig.program = 'calm';
         this.rig.laserProgram = 'off';
-        setLedMode(this.u, LED_MODES.plasma);
+        led(this.u, LED_MODES.plasma);
         break;
       case Section.Groove:
         this.rig.program = pickHead(['sweep', 'crowd', 'fan']);
         this.rig.laserProgram = music.hype > 0.65 ? pickLaser(['fan', 'scan', 'off']) : 'off';
-        setLedMode(this.u, this.rng.pick([LED_MODES.eq, LED_MODES.wave, LED_MODES.tunnel]));
+        led(this.u, this.rng.pick(skin.id === 'spooky' ? [LED_MODES.eq, LED_MODES.eyes, LED_MODES.tunnel, LED_MODES.eyes] : [LED_MODES.eq, LED_MODES.wave, LED_MODES.tunnel]));
         break;
       case Section.Build:
         this.rig.program = rotate ? pickHead(['fan', 'center']) : 'center';
         this.rig.laserProgram = 'scan';
-        setLedMode(this.u, LED_MODES.tunnel);
+        led(this.u, LED_MODES.tunnel);
         break;
       case Section.Peak:
         this.rig.program = pickHead(['ballyhoo', 'sweep', 'fan']);
         this.rig.laserProgram = pickLaser(['fan', 'tunnel', 'scan']);
-        setLedMode(this.u, this.rng.pick([LED_MODES.checker, LED_MODES.tunnel, LED_MODES.eq]));
+        led(this.u, this.rng.pick([LED_MODES.checker, LED_MODES.tunnel, LED_MODES.eq]));
         break;
     }
   }

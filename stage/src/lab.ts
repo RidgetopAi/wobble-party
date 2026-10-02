@@ -8,6 +8,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { crowdLook, djLook, heroLooks } from './wobbler/look';
 import { Wobbler } from './wobbler/wobbler';
 import { paletteFrom } from './theme';
+import { skin } from './skin';
 
 export function startLab(renderer: THREE.WebGLRenderer, params: URLSearchParams) {
   const scene = new THREE.Scene();
@@ -25,21 +26,38 @@ export function startLab(renderer: THREE.WebGLRenderer, params: URLSearchParams)
   scene.add(floor);
 
   const palette = paletteFrom({ name: params.get('theme') ?? 'default', colors: {} });
-  const looks = [djLook(), ...heroLooks(), ...Array.from({ length: 6 }, (_, i) => crowdLook(i + 1))];
+  // Spooky: enough of the crowd to see every costume (?crowd=N for more).
+  const nCrowd = Number(params.get('crowd') ?? (skin.id === 'spooky' ? 18 : 6));
+  let looks = [djLook(), ...heroLooks(), ...Array.from({ length: nCrowd }, (_, i) => crowdLook(i + 1))];
+  if (skin.id === 'spooky') {
+    // Front row: one crowd member in each costume; then the DJ and heroes.
+    const seen = new Set<number>();
+    const each = [];
+    for (let i = 1; i < 400 && each.length < 10; i++) {
+      const l = crowdLook(i);
+      if (l.costume && !seen.has(l.costume.kind)) {
+        seen.add(l.costume.kind);
+        each.push(l);
+      }
+    }
+    looks = [...each, djLook(), ...heroLooks()];
+  }
   const wobs = looks.map((l, i) => {
     const w = new Wobbler(l, i + 1, 'high');
+    w.setSkin(skin.id);
     w.applyPalette(palette);
-    const cols = 6;
+    const cols = Math.max(6, Math.ceil(looks.length / 2));
     const x = ((i % cols) - (cols - 1) / 2) * 1.25;
     const z = -Math.floor(i / cols) * 1.5;
-    w.placeAt(x, z, 0);
+    w.placeAt(x, z, Number(params.get('yaw') ?? 0));
     scene.add(w.root, w.shadow);
     return w;
   });
 
   const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
-  camera.position.set(0, 2.2, 9.5);
-  camera.lookAt(0, 0.4, -0.8);
+  const span = Math.max(1, Math.ceil(looks.length / 2) / 6);
+  camera.position.set(0, 2.2 + 3 * (span - 1), 9.5 * span);
+  camera.lookAt(0, 0.4, -0.8 * span);
 
   const pose = params.get('pose') ?? 'idle';
   let t = 0;
@@ -63,6 +81,11 @@ export function startLab(renderer: THREE.WebGLRenderer, params: URLSearchParams)
         case 'lean':
           w.rig.tiltZ.target = 0.35;
           w.rig.stretch.target = 1.15;
+          break;
+        case 'zombie':
+          for (const a of w.arms) a.target({ raise: Number(params.get('r') ?? 0.3), fwd: Number(params.get('f') ?? 1.5), inward: Number(params.get('i') ?? 0.1), elbow: Number(params.get('e') ?? 0.15) });
+          w.rig.tiltX.target = 0.16;
+          e.mouth = 0.3;
           break;
         case 'squash':
           w.rig.stretch.target = 0.75;

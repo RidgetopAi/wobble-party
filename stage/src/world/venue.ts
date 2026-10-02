@@ -16,6 +16,7 @@ import type { Music } from '../music';
 import type { Palette } from '../theme';
 import { floorMaterial, ledMaterial } from './led';
 import type { ShowUniforms } from './showUniforms';
+import type { SkinId } from '../skin';
 
 export const STAGE_Y = 1.0;
 export const STAGE_FRONT = -3.0;
@@ -38,6 +39,10 @@ export class Venue {
   private metal: THREE.MeshStandardMaterial;
   private stageMat: THREE.MeshStandardMaterial;
   private faders: THREE.Mesh[] = [];
+  /** World bounds of the sign's two words, once the font has loaded. */
+  signBounds: { wobble: THREE.Box3; party: THREE.Box3 } | null = null;
+  /** Wall neon per skin: classic shapes, and spooky ones built on first use. */
+  private neonSets: Partial<Record<SkinId, THREE.Group>> = {};
 
   constructor(
     private palette: Palette,
@@ -268,39 +273,8 @@ export class Venue {
       side.rotation.y = -sx * Math.PI / 2;
       this.group.add(side);
     }
-    const neon = (shape: THREE.Shape, color: THREE.Color, pos: THREE.Vector3, rotY: number, scale: number) => {
-      const pts = shape.getSpacedPoints(120).map((p) => new THREE.Vector3(p.x, p.y, 0));
-      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 240, 0.05, 8, true);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: color, emissiveIntensity: 2.2 });
-      mat.emissive = color;
-      this.neonMats.push(mat);
-      const m = new THREE.Mesh(tube, mat);
-      m.position.copy(pos);
-      m.rotation.y = rotY;
-      m.scale.setScalar(scale);
-      this.group.add(m);
-    };
-    const star = new THREE.Shape();
-    for (let i = 0; i < 10; i++) {
-      const a = Math.PI / 2 + (i * Math.PI) / 5;
-      const r = i % 2 ? 0.45 : 1;
-      if (i === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-      else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-    }
-    star.closePath();
-    const bolt = new THREE.Shape();
-    [[0.2, 1], [-0.45, -0.05], [0.0, -0.05], [-0.25, -1], [0.5, 0.15], [0.05, 0.15], [0.35, 1]].forEach(([x, y], i) => (i ? bolt.lineTo(x, y) : bolt.moveTo(x, y)));
-    bolt.closePath();
-    const heart = new THREE.Shape();
-    heart.moveTo(0, -0.9);
-    heart.bezierCurveTo(-1.2, -0.1, -0.9, 0.9, 0, 0.45);
-    heart.bezierCurveTo(0.9, 0.9, 1.2, -0.1, 0, -0.9);
-    neon(star, this.palette.lights[2], new THREE.Vector3(-13.5, 5.2, -8.2), 0.35, 1.2);
-    neon(bolt, this.palette.lights[4], new THREE.Vector3(13.5, 5.2, -8.2), -0.35, 1.2);
-    neon(heart, this.palette.lights[1], new THREE.Vector3(-8, 6, 21.9), Math.PI, 1.6);
-    neon(star, this.palette.lights[3], new THREE.Vector3(8, 6, 21.9), Math.PI, 1.4);
-    neon(bolt, this.palette.lights[0], new THREE.Vector3(19.9, 6, 8), -Math.PI / 2, 1.5);
-    neon(heart, this.palette.lights[5], new THREE.Vector3(-19.9, 6, 8), Math.PI / 2, 1.5);
+    this.neonSets.classic = this.buildNeon('classic');
+    this.group.add(this.neonSets.classic);
     // A glowing bar counter along the back wall.
     const bar = new THREE.Mesh(new THREE.BoxGeometry(14, 1.1, 1.2), new THREE.MeshStandardMaterial({ color: 0x0d0c12, roughness: 0.4, metalness: 0.4 }));
     bar.position.set(0, 0.55, 20.8);
@@ -309,6 +283,45 @@ export class Venue {
     (barStrip.material as THREE.MeshBasicMaterial).color = this.palette.lights[0];
     barStrip.position.set(0, 1.12, 20.2);
     this.group.add(barStrip);
+  }
+
+  /** Show the wall neon for a skin (built the first time it is worn). */
+  setSkin(id: SkinId) {
+    if (!this.neonSets[id]) {
+      this.neonSets[id] = this.buildNeon(id);
+      this.group.add(this.neonSets[id]);
+    }
+    for (const [k, g] of Object.entries(this.neonSets)) g.visible = k === id;
+  }
+
+  /** Neon shapes on the walls (seen in reverse shots): stars, bolts and hearts,
+   *  or bats, pumpkins, ghosts and moons. */
+  private buildNeon(id: SkinId) {
+    const group = new THREE.Group();
+    const neon = (shape: THREE.Shape, color: THREE.Color, pos: THREE.Vector3, rotY: number, scale: number) => {
+      const pts = shape.getSpacedPoints(160).map((p) => new THREE.Vector3(p.x, p.y, 0));
+      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 320, 0.05, 8, true);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: color, emissiveIntensity: 2.2 });
+      mat.emissive = color;
+      this.neonMats.push(mat);
+      const m = new THREE.Mesh(tube, mat);
+      m.position.copy(pos);
+      m.rotation.y = rotY;
+      m.scale.setScalar(scale);
+      group.add(m);
+    };
+    const L = this.palette.lights;
+    const spots: [THREE.Color, THREE.Vector3, number, number][] = [
+      [L[2], new THREE.Vector3(-13.5, 5.2, -8.2), 0.35, 1.2],
+      [L[4], new THREE.Vector3(13.5, 5.2, -8.2), -0.35, 1.2],
+      [L[1], new THREE.Vector3(-8, 6, 21.9), Math.PI, 1.6],
+      [L[3], new THREE.Vector3(8, 6, 21.9), Math.PI, 1.4],
+      [L[0], new THREE.Vector3(19.9, 6, 8), -Math.PI / 2, 1.5],
+      [L[5], new THREE.Vector3(-19.9, 6, 8), Math.PI / 2, 1.5],
+    ];
+    const shapes = id === 'spooky' ? spookyShapes() : classicShapes();
+    spots.forEach(([color, pos, rotY, scale], i) => neon(shapes[i % shapes.length], color, pos, rotY, scale));
+    return group;
   }
 
   private async loadSign() {
@@ -341,9 +354,11 @@ export class Venue {
       const neon = new THREE.Mesh(mergeGeometries(tubes)!, tubeMat);
       neon.position.copy(m.position);
       this.group.add(m, neon);
+      return bb.clone().translate(m.position);
     };
-    make('WOBBLE', 1.35, this.palette.neon2, STAGE_Y + 6.45);
-    make('PARTY', 1.35, this.palette.neon, STAGE_Y + 4.95);
+    const wobble = make('WOBBLE', 1.35, this.palette.neon2, STAGE_Y + 6.45);
+    const party = make('PARTY', 1.35, this.palette.neon, STAGE_Y + 4.95);
+    this.signBounds = { wobble, party };
   }
 
   update(dt: number, music: Music, time: number) {
@@ -362,4 +377,73 @@ export class Venue {
     for (const m of this.faceMats) m.emissiveIntensity = glow * (0.22 + 0.25 * music.vocal + 0.3 * music.dropPulse);
     for (const f of this.faders) f.position.z = 0.1 + 0.12 * Math.sin(time * 0.7 + f.position.x * 20);
   }
+}
+
+function classicShapes(): THREE.Shape[] {
+  const star = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const a = Math.PI / 2 + (i * Math.PI) / 5;
+    const r = i % 2 ? 0.45 : 1;
+    if (i === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  star.closePath();
+  const bolt = new THREE.Shape();
+  [[0.2, 1], [-0.45, -0.05], [0.0, -0.05], [-0.25, -1], [0.5, 0.15], [0.05, 0.15], [0.35, 1]].forEach(([x, y], i) => (i ? bolt.lineTo(x, y) : bolt.moveTo(x, y)));
+  bolt.closePath();
+  const heart = new THREE.Shape();
+  heart.moveTo(0, -0.9);
+  heart.bezierCurveTo(-1.2, -0.1, -0.9, 0.9, 0, 0.45);
+  heart.bezierCurveTo(0.9, 0.9, 1.2, -0.1, 0, -0.9);
+  // Wall order: star, bolt, heart, star, bolt, heart.
+  return [star, bolt, heart, star, bolt, heart];
+}
+
+function spookyShapes(): THREE.Shape[] {
+  // Bat: wings with a scalloped trailing edge, little ears.
+  const bat = new THREE.Shape();
+  bat.moveTo(0, 0.28);
+  bat.lineTo(0.08, 0.42);
+  bat.lineTo(0.12, 0.22);
+  bat.quadraticCurveTo(0.5, 0.5, 1.15, 0.45);
+  bat.quadraticCurveTo(0.95, 0.2, 1.0, -0.05);
+  bat.quadraticCurveTo(0.8, 0.0, 0.7, -0.2);
+  bat.quadraticCurveTo(0.5, -0.05, 0.38, -0.3);
+  bat.quadraticCurveTo(0.22, -0.12, 0, -0.38);
+  bat.quadraticCurveTo(-0.22, -0.12, -0.38, -0.3);
+  bat.quadraticCurveTo(-0.5, -0.05, -0.7, -0.2);
+  bat.quadraticCurveTo(-0.8, 0.0, -1.0, -0.05);
+  bat.quadraticCurveTo(-0.95, 0.2, -1.15, 0.45);
+  bat.quadraticCurveTo(-0.5, 0.5, -0.12, 0.22);
+  bat.lineTo(-0.08, 0.42);
+  bat.closePath();
+  // Pumpkin: three lobes and a stem.
+  const pumpkin = new THREE.Shape();
+  pumpkin.moveTo(0, 0.62);
+  pumpkin.quadraticCurveTo(0.35, 0.82, 0.62, 0.62);
+  pumpkin.quadraticCurveTo(1.05, 0.35, 0.9, -0.25);
+  pumpkin.quadraticCurveTo(0.72, -0.78, 0.25, -0.68);
+  pumpkin.quadraticCurveTo(0, -0.8, -0.25, -0.68);
+  pumpkin.quadraticCurveTo(-0.72, -0.78, -0.9, -0.25);
+  pumpkin.quadraticCurveTo(-1.05, 0.35, -0.62, 0.62);
+  pumpkin.quadraticCurveTo(-0.35, 0.82, -0.05, 0.62);
+  pumpkin.quadraticCurveTo(-0.1, 0.85, 0.08, 1.0);
+  pumpkin.lineTo(0.16, 0.92);
+  pumpkin.quadraticCurveTo(0.06, 0.8, 0, 0.62);
+  // Ghost: round head, wavy hem.
+  const ghost = new THREE.Shape();
+  ghost.moveTo(-0.6, -0.8);
+  ghost.lineTo(-0.6, 0.2);
+  ghost.absarc(0, 0.2, 0.6, Math.PI, 0, true);
+  ghost.lineTo(0.6, -0.8);
+  for (let i = 0; i < 4; i++) {
+    const x0 = 0.6 - i * 0.3;
+    ghost.quadraticCurveTo(x0 - 0.075, -0.62, x0 - 0.15, -0.8);
+    ghost.quadraticCurveTo(x0 - 0.225, -0.98, x0 - 0.3, -0.8);
+  }
+  // Crescent moon.
+  const moon = new THREE.Shape();
+  moon.absarc(0, 0, 0.9, Math.PI * 0.3, Math.PI * 1.7, false);
+  moon.absarc(0.38, 0, 0.72, Math.PI * 1.62, Math.PI * 0.38, true);
+  return [bat, pumpkin, ghost, moon, bat, ghost];
 }

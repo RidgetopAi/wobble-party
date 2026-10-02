@@ -42,6 +42,11 @@ export interface ShowUniforms {
   uLogo: { value: THREE.Texture | null };
   uLogoMix: { value: number };
   uLogoAspect: { value: number };
+  /** Skin: 0 classic, 1 spooky (LED programmes and decor read it). */
+  uSkin: { value: number };
+  /** Lightning on the wall (0..1, decays) and which bolt to draw. */
+  uLightning: { value: number };
+  uLightSeed: { value: number };
 }
 
 export function createShowUniforms(p: Palette): ShowUniforms {
@@ -75,6 +80,9 @@ export function createShowUniforms(p: Palette): ShowUniforms {
     uLogo: { value: null },
     uLogoMix: { value: 0 },
     uLogoAspect: { value: 4 },
+    uSkin: { value: 0 },
+    uLightning: { value: 0 },
+    uLightSeed: { value: 0 },
   };
 }
 
@@ -147,6 +155,9 @@ uniform float uArtMix;
 uniform sampler2D uLogo;
 uniform float uLogoMix;
 uniform float uLogoAspect;
+uniform float uSkin;
+uniform float uLightning;
+uniform float uLightSeed;
 
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);

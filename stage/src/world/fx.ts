@@ -1,4 +1,4 @@
-/** Confetti bursts and drifting haze. */
+/** Confetti bursts (candy corn in the spooky skin) and drifting haze. */
 
 import * as THREE from 'three';
 import type { Music } from '../music';
@@ -7,8 +7,27 @@ import type { Palette } from '../theme';
 
 const N_CONFETTI = 900;
 
+/** A candy corn: a rounded triangle in white, orange and yellow bands. */
+function candyCornGeometry() {
+  const g = new THREE.ConeGeometry(0.055, 0.15, 10, 6);
+  g.scale(1, 1, 0.55);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const col: number[] = [];
+  for (let i = 0; i < pos.count; i++) {
+    const t = (pos.getY(i) + 0.075) / 0.15; // 0 base .. 1 tip
+    const c = t > 0.72 ? [1, 0.97, 0.9] : t > 0.3 ? [1, 0.45, 0.05] : [1, 0.8, 0.1];
+    col.push(...c);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
+}
+
 export class Confetti {
   readonly mesh: THREE.InstancedMesh;
+  readonly candy: THREE.InstancedMesh;
+  readonly group = new THREE.Group();
+  /** Which shape the bursts use; switching mid-air changes the pieces in flight too. */
+  private kind: 'confetti' | 'candy' = 'confetti';
   private pos = new Float32Array(N_CONFETTI * 3);
   private vel = new Float32Array(N_CONFETTI * 3);
   private rot = new Float32Array(N_CONFETTI * 3);
@@ -35,6 +54,25 @@ export class Confetti {
       this.m.makeScale(0, 0, 0);
       this.mesh.setMatrixAt(i, this.m);
     }
+    const cmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, emissive: 0xffffff, emissiveIntensity: 0.08 });
+    this.candy = new THREE.InstancedMesh(candyCornGeometry(), cmat, N_CONFETTI);
+    this.candy.frustumCulled = false;
+    this.candy.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.candy.visible = false;
+    // The burst/update loop drives one mesh; the group holds both.
+    this.group.add(this.mesh, this.candy);
+  }
+
+  setKind(kind: 'confetti' | 'candy') {
+    if (kind === this.kind) return;
+    this.kind = kind;
+    this.mesh.visible = kind === 'confetti';
+    this.candy.visible = kind === 'candy';
+    // Clear pieces that died while this mesh was hidden; live ones are redrawn next update.
+    const live = kind === 'candy' ? this.candy : this.mesh;
+    this.m.makeScale(0, 0, 0);
+    for (let i = 0; i < N_CONFETTI; i++) live.setMatrixAt(i, this.m);
+    live.instanceMatrix.needsUpdate = true;
   }
 
   burst(count: number, from: THREE.Vector3, spread: THREE.Vector3, up = 3) {
@@ -77,11 +115,16 @@ export class Confetti {
       this.v.set(this.pos[o], this.pos[o + 1], this.pos[o + 2]);
       this.s.setScalar(fade);
       this.m.compose(this.v, this.q, this.s);
-      this.mesh.setMatrixAt(i, this.m);
-      this.mesh.setColorAt(i, this.c.copy(this.p.lights[this.colorIdx[i]]));
+      if (this.kind === 'candy') {
+        this.candy.setMatrixAt(i, this.m);
+      } else {
+        this.mesh.setMatrixAt(i, this.m);
+        this.mesh.setColorAt(i, this.c.copy(this.p.lights[this.colorIdx[i]]));
+      }
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    const live = this.kind === 'candy' ? this.candy : this.mesh;
+    live.instanceMatrix.needsUpdate = true;
+    if (live.instanceColor) live.instanceColor.needsUpdate = true;
   }
 }
 

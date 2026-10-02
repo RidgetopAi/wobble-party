@@ -11,6 +11,8 @@
  *   drop     staggered big jumps, spins, star eyes, "woo"
  *   swirl    the signature move: the lean sweeps a full circle on the bar
  *            while the face keeps looking ahead (a weeble going round)
+ *   zombie   the spooky skin's crowd move: everyone shuffles side to side
+ *            in lockstep, arms out front, a shoulder jerk on every beat
  *   arms     a routine chosen every two bars by section + personality
  *   idle     breathing, glances and fidgets when the music stops
  */
@@ -34,7 +36,8 @@ export type ArmRoutine =
   | 'handsUp'
   | 'sing'
   | 'raise'
-  | 'shake';
+  | 'shake'
+  | 'zombie';
 
 export interface DanceContext {
   music: Music;
@@ -77,6 +80,13 @@ export class Dancer {
   get swirling() {
     return this.swirlEnv > 0;
   }
+  /** Active zombie shuffle, in (lagged) dance beats. */
+  protected zombie: { start: number; beats: number } | null = null;
+  protected zombieEnv = 0;
+  protected zombieJerk = 0;
+  get zombieing() {
+    return this.zombieEnv > 0;
+  }
   /** Seconds the camera wants this one to look at it. */
   lookAtCamera = 0;
   /** Belt/emblem glow scale (0 in light themes, where glow reads as smudges). */
@@ -116,9 +126,18 @@ export class Dancer {
    * so each beat lands on a quarter of the circle. No-op if already swirling.
    */
   startSwirl(music: Music, delayBeats = 0, loops = 2, dir: 1 | -1 = this.rng.chance(0.5) ? 1 : -1) {
-    if (this.swirl || music.presence < 0.5) return;
+    if (this.swirl || this.zombie || music.presence < 0.5) return;
     const start = Math.ceil(music.danceBeatPos - this.p.lag) + delayBeats;
     this.swirl = { start, loops, dir, amp: (0.17 + 0.1 * this.p.showoff) * (0.8 + 0.4 * this.p.sway) };
+  }
+
+  /** Join the zombie shuffle on the next bar line, for `bars` bars. Everyone
+   *  who joins lands on the same bar, so the whole crowd moves together. */
+  startZombie(music: Music, bars = 4) {
+    if (this.zombie || music.presence < 0.5) return;
+    const start = Math.ceil((music.danceBeatPos - this.p.lag + 0.25) / 4) * 4;
+    this.zombie = { start, beats: bars * 4 };
+    this.swirl = null;
   }
 
   onEvent(e: MusicEvent, ctx: DanceContext) {
@@ -268,7 +287,7 @@ export class Dancer {
     const air = Math.min(0.3, 0.42 * beatDur) * (0.6 + 0.4 * clamp(h));
     const takeoff = 1 - air / beatDur;
     const beatIdx = Math.floor(beats);
-    if (pres > 0.5 && this.swirlEnv < 0.3 && this.lastPhase < takeoff && ph >= takeoff && !rig.airborne && this.hoppedBeat !== beatIdx) {
+    if (pres > 0.5 && this.swirlEnv < 0.3 && this.zombieEnv < 0.3 && this.lastPhase < takeoff && ph >= takeoff && !rig.airborne && this.hoppedBeat !== beatIdx) {
       const every = this.hopEveryBeat || (h * p.bounce > 0.75 && music.section === Section.Peak);
       const onDown = (beatIdx + 1) % 2 === 0 && h * p.jumpy > dials.hopDown;
       if (every || onDown) {
@@ -304,9 +323,36 @@ export class Dancer {
       }
     }
 
+    // ---- zombie shuffle: two beats to the right, two back, hunched, with a
+    // shoulder jerk on each beat. Slides along the dancer's own right.
+    this.zombieEnv = 0;
+    const zb = this.zombie;
+    if (zb) {
+      const u = beats - zb.start;
+      if (u >= zb.beats || pres < 0.3) this.zombie = null;
+      else if (u > -0.5) {
+        const env = smoothstep(-0.5, 0.5, u) * smoothstep(zb.beats, zb.beats - 1, u) * pres;
+        this.zombieEnv = env;
+        const k = Math.floor(Math.max(0, u));
+        const inBeat = Math.max(0, u) - k;
+        const dir = Math.floor(k / 2) % 2 === 0 ? 1 : -1;
+        const jerk = Math.exp(-inBeat * 6);
+        this.zombieJerk = jerk;
+        rig.tiltZ.target = rig.tiltZ.target * (1 - env) - env * dir * (0.08 + 0.1 * jerk);
+        rig.tiltX.target += env * 0.16;
+        rig.twist.target = env * dir * 0.35 * jerk;
+        const x = k + smoothstep(0, 0.35, inBeat);
+        const tri = 1 - Math.abs(((x % 4) / 2) - 1);
+        const slide = 0.22 * tri * env;
+        const yaw = ctx.stageYaw;
+        w.offset.set(Math.cos(yaw) * slide, -Math.sin(yaw) * slide);
+      }
+    }
+    if (!this.zombie) w.offset.set(0, 0);
+
     // ---- shimmy
     const shim = p.shimmy * clamp(music.high * 1.2 + music.density - 0.6) * h;
-    rig.twist.target = 0.3 * shim * Math.sin(2 * Math.PI * beats * 2);
+    if (this.zombieEnv < 0.01) rig.twist.target = 0.3 * shim * Math.sin(2 * Math.PI * beats * 2);
 
     // ---- build shake
     if (build > 0.2 && pres > 0.5) {
@@ -344,6 +390,9 @@ export class Dancer {
 
     this.arms(dt, ctx, beats, ph);
     this.face(ctx, h);
+    w.beatPhase = ph;
+    w.dancing = clamp(h) * pres;
+    w.costumeGlow = (0.45 + 0.35 * music.hype + 0.8 * music.kickPulse * pres + 0.6 * music.dropPulse) * Math.max(0.35, this.glowScale);
   }
 
   protected arms(dt: number, ctx: DanceContext, beats: number, ph: number) {
@@ -355,7 +404,14 @@ export class Dancer {
     const punch = Math.exp(-ph * 8);
     const rest = (a: Arm, k = 1) => a.target({ raise: 0.5 + 0.06 * k, fwd: 0.08, inward: 0, elbow: 0.45 });
     const pres = music.presence;
-    switch (pres < 0.3 ? 'rest' : this.routine) {
+    switch (pres < 0.3 ? 'rest' : this.zombieEnv > 0.3 ? 'zombie' : this.routine) {
+      case 'zombie': {
+        // Arms out front, hands drooping, clawing on the beat.
+        const j = this.zombieJerk;
+        L.target({ raise: 0.3, fwd: 1.5 + 0.12 * j, inward: 0.1, elbow: 0.15 + 0.3 * j });
+        R.target({ raise: 0.3, fwd: 1.5 + 0.12 * j, inward: 0.1, elbow: 0.15 + 0.3 * j });
+        break;
+      }
       case 'rest':
         rest(L);
         rest(R);
@@ -442,6 +498,14 @@ export class Dancer {
     e.blush = 0.45 + 0.4 * clamp(h);
     e.lookX = this.glanceUntil > 0 ? this.glance : 0;
     e.lookY = 0.3 * music.pitch * music.vocal;
+    if (this.zombieEnv > 0.3) {
+      // Dead-eyed and slack-jawed.
+      e.happy = false;
+      e.star = false;
+      e.smile = 0.05;
+      e.mouth = Math.max(e.mouth, 0.3);
+      e.lookX = 0;
+    }
     e.glowBelt = (0.25 * music.hype + 1.1 * music.kickPulse * music.presence) * this.glowScale;
     e.glowEmblem = (0.2 * music.hype + 0.7 * music.snarePulse * music.presence) * this.glowScale;
   }

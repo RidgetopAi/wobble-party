@@ -74,6 +74,7 @@ delete that folder to remove those too.
 | `space` | next camera shot |
 | `1`–`9` | hold a shot (wide, DJ, over-the-DJ, crowd dolly, hero close-up, crane, overhead, orbit, stage side) · `0` back to auto |
 | `t` / `T` | preview the next installed theme / back to the current one |
+| `s` | skin: auto · classic · spooky (remembered) |
 | `f` | fullscreen |
 | `d` | signal debugger (what the party is hearing) |
 | `h` | help · `q` quit |
@@ -108,6 +109,14 @@ reaches AUC 0.88 on singers and instrumentals it never saw (the DSP-only baselin
 become a black-and-white club full of candy-coloured wobblers, and light themes a daylight party. Theme changes cross-fade live.
 
 ![All 22 Omarchy themes](docs/img/themes.jpg)
+
+**Skins.** A skin is a dress-up layer on top of the theme: the theme still picks the colours, the
+skin picks what everyone wears and what happens in the room. *Spooky* (on by itself through October,
+or press `s`) puts the crowd in costumes: jack-o'-lanterns, skeletons, ghosts, mummies,
+Frankenstein's monsters, witches, devils, cats, bats and a vampire DJ. Lanterns line the stage, fog
+rolls over the floor, a spider lets itself down on builds, ghosts drift overhead, and drops set off
+lightning, a colony of bats and candy corn. The LED wall shows a moonlit graveyard and eyes in the
+dark, and now and then the whole floor breaks into a zombie shuffle (more of it for a Halloween song).
 
 ## Develop
 
