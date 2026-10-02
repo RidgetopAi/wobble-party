@@ -11,7 +11,7 @@ import type { Palette } from '../../theme';
 import type { ShowUniforms } from '../showUniforms';
 import type { Venue } from '../venue';
 import { Bats } from './bats';
-import { GroundFog } from './fog';
+import { GroundFog, type FogOccupant } from './fog';
 import { Ghosts } from './ghosts';
 import { Lanterns } from './lanterns';
 import { Webs } from './webs';
@@ -35,10 +35,12 @@ export class SpookyWorld {
     private p: Palette,
     private venue: Venue,
     quality: 'high' | 'low',
+    occupants: FogOccupant[],
   ) {
     this.lanterns = new Lanterns(quality);
     this.webs = new Webs(p);
     this.fog = new GroundFog(u, p, quality);
+    this.fog.occupants.push(...occupants, ...this.lanterns.floor);
     this.ghosts = new Ghosts(quality, p);
     this.group.add(this.lanterns.group, this.webs.group, this.fog.group, this.bats.mesh, this.ghosts.group);
   }

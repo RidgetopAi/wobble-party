@@ -90,6 +90,8 @@ export class Lanterns {
   private glow: THREE.PointLight[] = [];
   private rng = new Rng(1031);
   private t = 0;
+  /** Lanterns standing on the dance floor (they part the fog too). */
+  readonly floor: { pos: THREE.Vector3; r: number }[] = [];
   /** Put a lantern of radius r sitting on height y. */
   readonly add: (x: number, y: number, z: number, r: number, yaw: number) => void;
 
@@ -114,6 +116,7 @@ export class Lanterns {
       stem.rotation.z = this.rng.range(-0.3, 0.3);
       m.add(stem);
       this.group.add(m);
+      if (y === 0) this.floor.push({ pos: m.position, r });
     };
     const add = this.add;
     // Stage front, clear of the booth sightline.

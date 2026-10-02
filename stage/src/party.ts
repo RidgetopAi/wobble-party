@@ -148,7 +148,9 @@ export class Party {
   setSkin(id: SkinId) {
     const spooky = id === 'spooky';
     if (spooky && !this.spooky) {
-      this.spooky = new SpookyWorld(this.u, this.theme.p, this.venue, this.quality);
+      // Everyone on the dance floor parts the ground fog (not the DJ, up on stage).
+      const floor = this.crowd.all.filter((w) => w !== this.crowd.dj.w).map((w) => ({ pos: w.root.position, r: 0.4 * w.look.shape.width * w.look.scale }));
+      this.spooky = new SpookyWorld(this.u, this.theme.p, this.venue, this.quality, floor);
       this.scene.add(this.spooky.group);
     }
     if (this.spooky) this.spooky.group.visible = spooky;
