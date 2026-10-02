@@ -75,6 +75,7 @@ delete that folder to remove those too.
 | `1`–`9` | hold a shot (wide, DJ, over-the-DJ, crowd dolly, hero close-up, crane, overhead, orbit, stage side) · `0` back to auto |
 | `t` / `T` | preview the next installed theme / back to the current one |
 | `s` | skin: auto · classic · spooky (remembered) |
+| `k` | tuning dials: how hard the crowd dances, hops, shimmies and shows off (kept in the URL) |
 | `f` | fullscreen |
 | `d` | signal debugger (what the party is hearing) |
 | `h` | help · `q` quit |
@@ -117,6 +118,12 @@ Frankenstein's monsters, witches, devils, cats, bats and a vampire DJ. Lanterns 
 rolls over the floor, a spider lets itself down on builds, ghosts drift overhead, and drops set off
 lightning, a colony of bats and candy corn. The LED wall shows a moonlit graveyard and eyes in the
 dark, and now and then the whole floor breaks into a zombie shuffle (more of it for a Halloween song).
+
+![The spooky skin](docs/img/spooky-crowd.jpg)
+
+The classic look, the rest of the year:
+
+![Wobble Party, classic skin](docs/img/classic.png)
 
 ## Develop
 

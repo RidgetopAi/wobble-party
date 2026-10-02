@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ridgetopai.wobble-party",
   "name": "Wobble Party",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Brian Ridgetopai",
   "description": "A 3D party of wobbling vinyl toys that dance, sing and react to whatever you're playing — cliamp, Spotify, anything. Themed by your Omarchy theme.",
   "homepage": "https://github.com/RidgetopAi/wobble-party",
